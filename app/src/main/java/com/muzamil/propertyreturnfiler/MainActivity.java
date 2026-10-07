@@ -478,6 +478,13 @@ public class MainActivity extends Activity {
         Space q4=new Space(this);quick2.addView(q4,new LinearLayout.LayoutParams(dp(8),1));
         quick2.addView(quick("FBR Portal",R.drawable.ic_fbr_portal,()->openUrl("https://iris.fbr.gov.pk/")),new LinearLayout.LayoutParams(0,dp(82),1));
         body.addView(quick2);
+        LinearLayout quick3=new LinearLayout(this);
+        quick3.addView(quick("Tax Calendar",R.drawable.ic_calendar,()->showTaxCalendar()),new LinearLayout.LayoutParams(0,dp(82),1));
+        Space q5=new Space(this);quick3.addView(q5,new LinearLayout.LayoutParams(dp(8),1));
+        quick3.addView(quick("Receivables",R.drawable.ic_payment,()->showReceivables()),new LinearLayout.LayoutParams(0,dp(82),1));
+        Space q6=new Space(this);quick3.addView(q6,new LinearLayout.LayoutParams(dp(8),1));
+        quick3.addView(quick("Risk Center",R.drawable.ic_bell,()->showRiskCenter()),new LinearLayout.LayoutParams(0,dp(82),1));
+        body.addView(quick3);
 
         body.addView(section("Compliance Overview"));
         LinearLayout compliance=card(20);
@@ -494,6 +501,7 @@ public class MainActivity extends Activity {
         priorityCard.addView(infoLineReport("High-priority tasks",String.valueOf(db.countHighPriorityTasks()),db.countHighPriorityTasks()>0?ORANGE:GREEN));
         priorityCard.addView(infoLineReport("Reminders next 7 days",String.valueOf(db.countRemindersNext7Days()),BLUE));
         priorityCard.addView(infoLineReport("Outstanding fees","PKR "+String.format(Locale.US,"%,.0f",db.outstandingPayments()),PURPLE));
+        priorityCard.addView(infoLineReport("Missing documents",String.valueOf(db.countMissingDocuments()),db.countMissingDocuments()>0?ORANGE:GREEN));
         priorityCard.setOnClickListener(v->showActionCenter());
         body.addView(priorityCard);
 
@@ -949,9 +957,13 @@ public class MainActivity extends Activity {
         body.addView(menuRow("Client Database",R.drawable.ic_people,()->showClients("")));
         body.addView(menuRow("Global Search",R.drawable.ic_search,()->showGlobalSearch()));
         body.addView(menuRow("Filing Center",R.drawable.ic_doc,()->showFilingsHub()));
+        body.addView(menuRow("Tax Calendar",R.drawable.ic_calendar,()->showTaxCalendar()));
         body.addView(menuRow("Reminder Center",R.drawable.ic_bell,()->showReminders()));
         body.addView(menuRow("Documents Checklist",R.drawable.ic_doc,()->showDocumentsHub()));
         body.addView(menuRow("Payments & Fees",R.drawable.ic_payment,()->showPaymentsHub()));
+        body.addView(menuRow("Receivables Center",R.drawable.ic_payment,()->showReceivables()));
+        body.addView(menuRow("Client Risk Center",R.drawable.ic_bell,()->showRiskCenter()));
+        body.addView(menuRow("Document Intelligence",R.drawable.ic_doc,()->showDocumentIntelligence()));
         body.addView(menuRow("Reports & Compliance",R.drawable.ic_grid,()->showReports()));
         body.addView(menuRow("Action Center",R.drawable.ic_bell,()->showActionCenter()));
         body.addView(menuRow("Task Manager",R.drawable.ic_calendar,()->showTasksHub()));
@@ -1052,7 +1064,7 @@ public class MainActivity extends Activity {
         TextView l=tv("Client",11,MUTED,true);f.addView(l);
         Spinner client=new Spinner(this);client.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels));client.setSelection(selected);f.addView(client,new LinearLayout.LayoutParams(-1,dp(50)));
         EditText title=field(f,"Task title","Verify return documents");
-        EditText due=field(f,"Due date","Today");
+        EditText due=dateField(f,"Due date",new SimpleDateFormat("dd MMM yyyy",Locale.US).format(new Date()));
         Spinner priority=dropdown(f,"Priority",new String[]{"High","Medium","Low"},"Medium");
         EditText notes=field(f,"Notes","");
         new AlertDialog.Builder(this).setTitle("Add Task").setView(f).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{
@@ -1108,14 +1120,17 @@ public class MainActivity extends Activity {
     }
 
     private int clientComplianceScore(long id,DBHelper.Client cl){
-        int score=25;
+        int score=20;
         if(cl.ntn!=null&&!cl.ntn.trim().isEmpty())score+=15;
         if(cl.cnic!=null&&!cl.cnic.trim().isEmpty())score+=10;
         if(cl.whatsapp!=null&&!cl.whatsapp.trim().isEmpty())score+=10;
-        if(!db.documents(id).isEmpty())score+=15;
-        for(DBHelper.Filing f:db.filings(id))if("Filed".equals(f.status)){score+=15;break;}
-        boolean pendingTask=false;for(DBHelper.Task t:db.tasks(id))if(!"Completed".equals(t.status)){pendingTask=true;break;}
-        if(!pendingTask)score+=10;
+        if(!db.documents(id).isEmpty())score+=10;
+        if(db.countClientMissingDocuments(id)==0)score+=10;
+        boolean filed=false;for(DBHelper.Filing f:db.filings(id))if("Filed".equals(f.status)){filed=true;break;}
+        if(filed)score+=15;
+        if(db.countClientPendingFilings(id)==0)score+=5;
+        if(db.countClientOpenTasks(id)==0)score+=5;
+        if(db.clientOutstandingPayments(id)<=0)score+=5;
         return Math.min(100,score);
     }
     private String complianceHint(long id,DBHelper.Client cl){
@@ -1123,6 +1138,94 @@ public class MainActivity extends Activity {
         if(score>=85)return "Strong profile: identity, documents and filing work are well maintained.";
         if(score>=60)return "Good progress. Complete pending documents/tasks to improve readiness.";
         return "Needs attention: verify identity, documents, filings and outstanding tasks.";
+    }
+
+    private Date parseErpDate(String s){
+        if(s==null||s.trim().isEmpty())return null;
+        try{SimpleDateFormat f=new SimpleDateFormat("dd MMM yyyy",Locale.US);f.setLenient(false);return f.parse(s.trim());}catch(Exception e){return null;}
+    }
+
+    private void showTaxCalendar(){
+        activeNav="more";shell("Tax Calendar","Upcoming and overdue return deadlines");
+        List<DBHelper.FilingRow> rows=new ArrayList<>(db.allFilings());
+        Collections.sort(rows,new Comparator<DBHelper.FilingRow>(){
+            @Override public int compare(DBHelper.FilingRow a,DBHelper.FilingRow b){
+                Date da=parseErpDate(a.due), dbb=parseErpDate(b.due);
+                if(da==null&&dbb==null)return Long.compare(a.id,b.id);
+                if(da==null)return 1;if(dbb==null)return -1;return da.compareTo(dbb);
+            }
+        });
+        LinearLayout summary=card(18);
+        summary.addView(infoLineReport("Overdue",String.valueOf(db.countOverdueFilings()),db.countOverdueFilings()>0?RED:GREEN));
+        summary.addView(infoLineReport("Pending returns",String.valueOf(db.countPending()),ORANGE));
+        summary.addView(infoLineReport("Next 7-day reminders",String.valueOf(db.countRemindersNext7Days()),BLUE));
+        body.addView(summary);
+        body.addView(section("Deadline Timeline"));
+        int shown=0;
+        for(DBHelper.FilingRow f:rows){
+            if("Filed".equals(f.status)||"Completed".equals(f.status))continue;
+            boolean overdue=db.isOverdue(f.due,f.status);
+            LinearLayout x=card(15);x.setOnClickListener(v->showClientFilings(f.clientId));
+            LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);
+            tx.addView(tv(f.client==null?"Unknown client":f.client,13,INK,true));
+            tx.addView(tv(f.month+" "+f.year+" • "+safe(f.type),10,MUTED,false));
+            tx.addView(iconText(safe(f.due),R.drawable.ic_calendar,10,overdue?RED:BLUE,true));
+            top.addView(tx,new LinearLayout.LayoutParams(0,-2,1));
+            TextView badge=tv(overdue?"OVERDUE":"UPCOMING",9,overdue?RED:BLUE,true);badge.setGravity(Gravity.CENTER);badge.setBackground(solid(statusBg(overdue?"Overdue":"Active"),12));top.addView(badge,new LinearLayout.LayoutParams(dp(78),dp(28)));
+            x.addView(top);body.addView(x);shown++;
+        }
+        if(shown==0)body.addView(emptyState("No pending deadlines","All recorded filings are completed."));
+    }
+
+    private void showReceivables(){
+        activeNav="more";shell("Receivables Center","Outstanding consultancy fees");
+        LinearLayout hero=card(20);hero.setBackground(gradient(Color.rgb(132,83,246),Color.rgb(84,50,205),20));
+        hero.addView(tv("Outstanding Receivables",12,0xFFEFE9FF,false));
+        hero.addView(tv("PKR "+String.format(Locale.US,"%,.0f",db.outstandingPayments()),28,Color.WHITE,true));
+        hero.addView(tv(db.countPendingPayments()+" unpaid payment records",10,0xFFEFE9FF,false));body.addView(hero);
+        body.addView(section("Outstanding Payments"));
+        int shown=0;
+        for(DBHelper.PaymentRow p:db.allPayments()){
+            if("Paid".equalsIgnoreCase(p.status))continue;
+            LinearLayout x=card(16);x.setOnClickListener(v->showClientPayments(p.clientId));
+            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);
+            tx.addView(tv(p.client==null?"Unknown client":p.client,13,INK,true));tx.addView(tv(p.title+" • Due "+safe(p.due),10,MUTED,false));tx.addView(tv(p.status,9,ORANGE,true));
+            row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));row.addView(tv("PKR "+String.format(Locale.US,"%,.0f",p.amount),13,PURPLE,true));x.addView(row);body.addView(x);shown++;
+        }
+        if(shown==0)body.addView(emptyState("No receivables","All recorded fees are paid."));
+    }
+
+    private void showRiskCenter(){
+        activeNav="more";shell("Client Risk Center","Lowest compliance readiness first");
+        List<DBHelper.Client> clients=new ArrayList<>(db.clients(""));
+        Collections.sort(clients,new Comparator<DBHelper.Client>(){
+            @Override public int compare(DBHelper.Client a,DBHelper.Client b){return Integer.compare(clientComplianceScore(a.id,a),clientComplianceScore(b.id,b));}
+        });
+        body.addView(section("Risk-ranked Clients"));
+        for(DBHelper.Client cl:clients){
+            int score=clientComplianceScore(cl.id,cl);int color=score<55?RED:(score<80?ORANGE:GREEN);
+            LinearLayout x=card(16);x.setOnClickListener(v->showClient(cl.id));
+            LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(tv(cl.name,13,INK,true));
+            tx.addView(tv(db.countClientPendingFilings(cl.id)+" pending filings • "+db.countClientOpenTasks(cl.id)+" open tasks • "+db.countClientMissingDocuments(cl.id)+" missing docs",10,MUTED,false));
+            head.addView(tx,new LinearLayout.LayoutParams(0,-2,1));
+            TextView scoreV=tv(score+"%",12,color,true);scoreV.setGravity(Gravity.CENTER);scoreV.setBackground(solid(statusBg(score<55?"Overdue":(score<80?"Pending":"Filed")),14));head.addView(scoreV,new LinearLayout.LayoutParams(dp(58),dp(34)));x.addView(head);
+            x.addView(progressLine("Readiness",score,100,color));body.addView(x);
+        }
+    }
+
+    private void showDocumentIntelligence(){
+        activeNav="more";shell("Document Intelligence","Missing, requested and received client records");
+        LinearLayout stats=card(18);stats.addView(infoLineReport("All documents",String.valueOf(db.countDocuments()),BLUE));stats.addView(infoLineReport("Missing / requested",String.valueOf(db.countMissingDocuments()),db.countMissingDocuments()>0?ORANGE:GREEN));body.addView(stats);
+        body.addView(section("Needs Attention"));
+        int shown=0;
+        for(DBHelper.DocumentRow d:db.allDocuments()){
+            if("Received".equalsIgnoreCase(d.status)||"Verified".equalsIgnoreCase(d.status))continue;
+            LinearLayout x=card(15);x.setOnClickListener(v->showClientDocuments(d.clientId));x.addView(tv(d.client==null?"Unknown client":d.client,13,INK,true));x.addView(tv(d.title+" • "+d.category,10,MUTED,false));x.addView(tv(d.status,10,ORANGE,true));body.addView(x);shown++;
+        }
+        if(shown==0)body.addView(emptyState("Documents complete","No requested or missing document records."));
     }
 
     private void showClientNotes(long id){
@@ -1216,7 +1319,7 @@ public class MainActivity extends Activity {
 
     private void paymentForm(long id){
         LinearLayout f=new LinearLayout(this);f.setOrientation(LinearLayout.VERTICAL);f.setPadding(dp(18),dp(8),dp(18),dp(8));
-        EditText t=field(f,"Payment title","Consultancy Fee");EditText a=field(f,"Amount","5000");a.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);EditText due=field(f,"Due date",new SimpleDateFormat("dd MMM yyyy",Locale.US).format(new Date(System.currentTimeMillis()+7L*86400000L)));Spinner st=dropdown(f,"Status",new String[]{"Pending","Paid","Partially Paid","Overdue"},"Pending");
+        EditText t=field(f,"Payment title","Consultancy Fee");EditText a=field(f,"Amount","5000");a.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);EditText due=dateField(f,"Due date",new SimpleDateFormat("dd MMM yyyy",Locale.US).format(new Date(System.currentTimeMillis()+7L*86400000L)));Spinner st=dropdown(f,"Status",new String[]{"Pending","Paid","Partially Paid","Overdue"},"Pending");
         new AlertDialog.Builder(this).setTitle("Add Payment").setView(f).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{double amount=0;try{amount=Double.parseDouble(val(a));}catch(Exception ignored){}db.addPayment(id,val(t),amount,val(due),String.valueOf(st.getSelectedItem()),"");showClientPayments(id);}).show();
     }
 
@@ -1264,7 +1367,7 @@ public class MainActivity extends Activity {
     }
     private void showSettingsInfo(){
         activeNav="more";shell("Settings","FBR Return Filer preferences");
-        body.addView(infoCard("App","FBR Return Filer Pro V16",R.drawable.ic_settings,false));
+        body.addView(infoCard("App","FBR Return Filer Pro V17",R.drawable.ic_settings,false));
         body.addView(infoCard("Storage","Private SQLite + JSON backup",R.drawable.ic_doc,false));
         body.addView(infoCard("Reminder channel","Local notification + WhatsApp",R.drawable.ic_bell,false));
 
@@ -1301,7 +1404,7 @@ public class MainActivity extends Activity {
         EditText business=field(f,"Business / Profession",edit?c.business:"");
         Spinner type=dropdown(f,"Filing Type",new String[]{"Income Tax Return (ITR)","Sales Tax Return (STR)","Income + Sales Tax","Salaried / Business"},edit?c.taxType:"Income Tax Return (ITR)");
         Spinner status=dropdown(f,"Client Status",new String[]{"Active","Pending","Filed"},edit?c.status:"Active");
-        EditText due=field(f,"Next Due Date",edit?c.nextDue:"");
+        EditText due=dateField(f,"Next Due Date",edit?c.nextDue:new SimpleDateFormat("dd MMM yyyy",Locale.US).format(new Date(System.currentTimeMillis()+7L*86400000L)));
         EditText email=field(f,"Email",edit?c.email:"");
         EditText address=field(f,"Address",edit?c.address:"");
         EditText notes=field(f,"Notes",edit?c.notes:"");
@@ -1329,6 +1432,16 @@ public class MainActivity extends Activity {
         s.setSelection(pick);
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(50));p.setMargins(0,0,0,dp(9));parent.addView(s,p);
         return s;
+    }
+
+    private EditText dateField(LinearLayout parent,String hint,String value){
+        EditText e=field(parent,hint,value);e.setFocusable(false);e.setClickable(true);
+        e.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_calendar,0,0,0);e.setCompoundDrawablePadding(dp(8));
+        e.setOnClickListener(v->{
+            Calendar cal=Calendar.getInstance();Date existing=parseErpDate(e.getText().toString());if(existing!=null)cal.setTime(existing);
+            new DatePickerDialog(this,(view,year,month,day)->{Calendar picked=Calendar.getInstance();picked.set(year,month,day);e.setText(new SimpleDateFormat("dd MMM yyyy",Locale.US).format(picked.getTime()));},cal.get(Calendar.YEAR),cal.get(Calendar.MONTH),cal.get(Calendar.DAY_OF_MONTH)).show();
+        });
+        return e;
     }
 
     private EditText field(LinearLayout parent,String hint,String value){
@@ -1378,7 +1491,7 @@ public class MainActivity extends Activity {
         Spinner month=dropdown(f,"Month",new String[]{"January","February","March","April","May","June","July","August","September","October","November","December"},new SimpleDateFormat("MMMM",Locale.US).format(new Date()));
         EditText year=field(f,"Year",new SimpleDateFormat("yyyy",Locale.US).format(new Date()));year.setInputType(InputType.TYPE_CLASS_NUMBER);
         Spinner type=dropdown(f,"Filing Type",new String[]{"Income Tax Return (ITR)","Sales Tax Return (STR)","Annual Income Tax Return","Withholding Statement"},"Income Tax Return (ITR)");
-        EditText due=field(f,"Due Date",new SimpleDateFormat("dd MMM yyyy",Locale.US).format(new Date(System.currentTimeMillis()+7L*86400000L)));
+        EditText due=dateField(f,"Due Date",new SimpleDateFormat("dd MMM yyyy",Locale.US).format(new Date(System.currentTimeMillis()+7L*86400000L)));
         new AlertDialog.Builder(this).setTitle("Add Filing").setView(f).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{
             int y=Calendar.getInstance().get(Calendar.YEAR);try{y=Integer.parseInt(val(year));}catch(Exception ignored){}
             db.addFiling(clientId,String.valueOf(month.getSelectedItem()),y,String.valueOf(type.getSelectedItem()),val(due),"Pending","");
