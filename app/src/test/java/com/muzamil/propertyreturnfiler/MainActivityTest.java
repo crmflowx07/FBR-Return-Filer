@@ -33,10 +33,10 @@ public class MainActivityTest {
             throw new AssertionError(e);
         }
         assertNotNull("App must launch directly into dashboard", dashboardRoot);
-        assertNotNull("Dashboard must show Good Morning", findText(dashboardRoot, "Good Morning"));
+        assertNotNull("Dashboard must show dynamic greeting", findText(dashboardRoot, "Good "));
         assertNotNull("Dashboard must show Total Clients", findText(dashboardRoot, "Total Clients"));
         assertNotNull("Dashboard must show Quick Actions", findText(dashboardRoot, "Quick Actions"));
-        assertNull("Get Started must not exist in V13", findText(dashboardRoot, "Get Started"));
+        assertNull("Get Started must not exist in V19", findText(dashboardRoot, "Get Started"));
 
         View clients = findExactText(dashboardRoot, "Clients");
         assertNotNull("Dashboard must expose Clients", clients);
