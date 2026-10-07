@@ -463,7 +463,7 @@ public class MainActivity extends Activity {
         workRow.addView(metric("Audit Events",String.valueOf(db.auditLogs(0).size()),"Recorded actions",R.drawable.ic_grid,BLUE,Color.rgb(232,244,255)),new LinearLayout.LayoutParams(0,dp(112),1));
         body.addView(workRow);
 
-        LinearLayout qh=new LinearLayout(this);qh.setGravity(Gravity.CENTER_VERTICAL);qh.addView(section("Quick Actions"),new LinearLayout.LayoutParams(0,-2,1));TextView view=tv("Task Center",11,BLUE,true);view.setOnClickListener(v->showTasksHub());qh.addView(view);body.addView(qh);
+        LinearLayout qh=new LinearLayout(this);qh.setGravity(Gravity.CENTER_VERTICAL);qh.addView(section("Quick Actions"),new LinearLayout.LayoutParams(0,-2,1));TextView view=tv("Executive Center",11,BLUE,true);view.setOnClickListener(v->showExecutiveCenter());qh.addView(view);body.addView(qh);
         LinearLayout quick1=new LinearLayout(this);
         quick1.addView(quick("Add Client",R.drawable.ic_people,()->clientForm(null)),new LinearLayout.LayoutParams(0,dp(86),1));
         Space q1=new Space(this);quick1.addView(q1,new LinearLayout.LayoutParams(dp(8),1));
@@ -717,6 +717,8 @@ public class MainActivity extends Activity {
         snapshot.addView(infoLineReport("Open tasks",String.valueOf(db.countClientOpenTasks(id)),db.countClientOpenTasks(id)>0?ORANGE:GREEN));
         snapshot.addView(infoLineReport("Total fees","PKR "+String.format(Locale.US,"%,.0f",db.clientTotalPayments(id)),BLUE));
         snapshot.addView(infoLineReport("Outstanding fees","PKR "+String.format(Locale.US,"%,.0f",db.clientOutstandingPayments(id)),db.clientOutstandingPayments(id)>0?RED:GREEN));
+        long lastActivity=db.latestAuditTime(id);
+        if(lastActivity>0)snapshot.addView(infoLineReport("Last activity",relativeTime(lastActivity),BLUE));
         body.addView(snapshot);
 
         LinearLayout contactActions=new LinearLayout(this);
@@ -726,6 +728,10 @@ public class MainActivity extends Activity {
         Space cg2=new Space(this);contactActions.addView(cg2,new LinearLayout.LayoutParams(dp(8),1));
         Button share=actionButton("Share",R.drawable.ic_doc,false);share.setOnClickListener(v->shareClientSummary(c));contactActions.addView(share,new LinearLayout.LayoutParams(0,dp(48),1));
         body.addView(contactActions);
+        Button follow=actionButton("Smart WhatsApp Follow-up",R.drawable.ic_chat,true);
+        follow.setBackground(gradient(Color.rgb(22,196,96),Color.rgb(10,172,75),18));
+        follow.setOnClickListener(v->showFollowupTemplates(c));
+        LinearLayout.LayoutParams fup=new LinearLayout.LayoutParams(-1,dp(50));fup.setMargins(0,dp(8),0,0);body.addView(follow,fup);
 
         body.addView(section("Client Workspace"));
         LinearLayout ws1=new LinearLayout(this);
@@ -864,7 +870,18 @@ public class MainActivity extends Activity {
         finance.addView(infoLineReport("Total recorded fees","PKR "+String.format(Locale.US,"%,.0f",db.totalPayments()),BLUE));
         finance.addView(infoLineReport("Paid fees","PKR "+String.format(Locale.US,"%,.0f",db.paidPayments()),GREEN));
         finance.addView(infoLineReport("Pending payment records",String.valueOf(db.countPendingPayments()),ORANGE));
+        finance.addView(infoLineReport("Collection rate",String.format(Locale.US,"%.1f%%",db.collectionRate()),db.collectionRate()>=80?GREEN:(db.collectionRate()>=50?ORANGE:RED)));
         body.addView(finance);
+
+        body.addView(section("Portfolio Mix"));
+        LinearLayout mix=card(18);
+        int totalClients=Math.max(1,db.countClients());
+        mix.addView(progressLine("Income Tax / ITR",db.countTaxType("Income"),totalClients,BLUE));
+        mix.addView(spacer(10));
+        mix.addView(progressLine("Sales Tax / STR",db.countTaxType("Sales"),totalClients,PURPLE));
+        mix.addView(spacer(10));
+        mix.addView(progressLine("Salaried / Business",db.countTaxType("Salaried"),totalClients,GREEN));
+        body.addView(mix);
 
         body.addView(section("Return Performance"));
         LinearLayout perf=card(18);
@@ -879,7 +896,16 @@ public class MainActivity extends Activity {
         risk.addView(infoLineReport("High priority tasks",String.valueOf(db.countHighPriorityTasks()),ORANGE));
         risk.addView(infoLineReport("Outstanding fees","PKR "+String.format(Locale.US,"%,.0f",db.outstandingPayments()),PURPLE));
         risk.addView(infoLineReport("7-day reminders",String.valueOf(db.countRemindersNext7Days()),BLUE));
+        risk.addView(infoLineReport("Clients with receivables",String.valueOf(db.countClientsWithOutstandingFees()),PURPLE));
         body.addView(risk);
+
+        body.addView(section("Receivables Aging"));
+        LinearLayout aging=card(18);
+        aging.addView(infoLineReport("Current / not due","PKR "+String.format(Locale.US,"%,.0f",db.receivablesAging("current")),BLUE));
+        aging.addView(infoLineReport("1–30 days","PKR "+String.format(Locale.US,"%,.0f",db.receivablesAging("1-30")),ORANGE));
+        aging.addView(infoLineReport("31–60 days","PKR "+String.format(Locale.US,"%,.0f",db.receivablesAging("31-60")),RED));
+        aging.addView(infoLineReport("61+ days","PKR "+String.format(Locale.US,"%,.0f",db.receivablesAging("61+")),RED));
+        aging.setOnClickListener(v->showReceivables());body.addView(aging);
 
         Button csv=actionButton("Export Clients CSV",R.drawable.ic_doc,false);csv.setOnClickListener(v->exportClientsCsv());body.addView(csv,new LinearLayout.LayoutParams(-1,dp(50)));body.addView(spacer(8));
         Button share=actionButton("Share Summary",R.drawable.ic_doc,true);share.setOnClickListener(v->shareBusinessSummary());
@@ -916,6 +942,67 @@ public class MainActivity extends Activity {
                 "Paid Fees: PKR "+String.format(Locale.US,"%,.0f",db.paidPayments());
         Intent send=new Intent(Intent.ACTION_SEND);send.setType("text/plain");send.putExtra(Intent.EXTRA_SUBJECT,"FBR Return Filer Summary");send.putExtra(Intent.EXTRA_TEXT,s);
         startActivity(Intent.createChooser(send,"Share report"));
+    }
+
+    private void showExecutiveCenter(){
+        activeNav="more";shell("Executive Command Center","Practice-wide tax operations snapshot");
+        LinearLayout hero=card(20);hero.setBackground(gradient(Color.rgb(17,53,126),Color.rgb(31,104,221),20));
+        hero.addView(tv("Practice Health",12,0xFFDDEAFF,false));
+        int risk=Math.min(100,db.countOverdueFilings()*8+db.countHighPriorityTasks()*5+db.countMissingDocuments()*3);
+        int health=Math.max(0,100-risk);
+        hero.addView(tv(health+"%",34,Color.WHITE,true));
+        hero.addView(tv("Calculated from overdue returns, priority tasks and missing documents",10,0xFFDDEAFF,false));body.addView(hero);
+
+        body.addView(section("Key Performance"));
+        LinearLayout kpi=card(18);
+        kpi.addView(infoLineReport("Clients",String.valueOf(db.countClients()),BLUE));
+        kpi.addView(infoLineReport("Return compliance",String.format(Locale.US,"%.1f%%",db.countFiled()*100.0/Math.max(1,db.countFiled()+db.countPending())),GREEN));
+        kpi.addView(infoLineReport("Collection rate",String.format(Locale.US,"%.1f%%",db.collectionRate()),db.collectionRate()>=80?GREEN:ORANGE));
+        kpi.addView(infoLineReport("Outstanding fees","PKR "+String.format(Locale.US,"%,.0f",db.outstandingPayments()),PURPLE));
+        body.addView(kpi);
+
+        body.addView(section("Next 30 Days"));
+        LinearLayout future=card(18);
+        future.addView(infoLineReport("Returns due in 7 days",String.valueOf(db.countPendingDueWithinDays(7)),db.countPendingDueWithinDays(7)>0?ORANGE:GREEN));
+        future.addView(infoLineReport("Returns due in 30 days",String.valueOf(db.countPendingDueWithinDays(30)),BLUE));
+        future.addView(infoLineReport("Reminders in 7 days",String.valueOf(db.countRemindersNext7Days()),BLUE));
+        future.addView(infoLineReport("Open high-priority tasks",String.valueOf(db.countHighPriorityTasks()),ORANGE));
+        body.addView(future);
+
+        body.addView(section("Attention Required"));
+        LinearLayout alert=card(18);
+        alert.addView(infoLineReport("Overdue filings",String.valueOf(db.countOverdueFilings()),db.countOverdueFilings()>0?RED:GREEN));
+        alert.addView(infoLineReport("Missing documents",String.valueOf(db.countMissingDocuments()),db.countMissingDocuments()>0?ORANGE:GREEN));
+        alert.addView(infoLineReport("Clients with receivables",String.valueOf(db.countClientsWithOutstandingFees()),PURPLE));
+        alert.setOnClickListener(v->showActionCenter());body.addView(alert);
+
+        LinearLayout buttons=new LinearLayout(this);
+        Button riskBtn=actionButton("Risk Center",R.drawable.ic_bell,false);riskBtn.setOnClickListener(v->showRiskCenter());buttons.addView(riskBtn,new LinearLayout.LayoutParams(0,dp(48),1));
+        Space eg=new Space(this);buttons.addView(eg,new LinearLayout.LayoutParams(dp(8),1));
+        Button calBtn=actionButton("Tax Calendar",R.drawable.ic_calendar,true);calBtn.setOnClickListener(v->showTaxCalendar());buttons.addView(calBtn,new LinearLayout.LayoutParams(0,dp(48),1));
+        body.addView(buttons);
+    }
+
+    private void showFollowupTemplates(DBHelper.Client c){
+        String[] labels={"Request Documents","Return Due Soon","Payment Follow-up","Custom WhatsApp"};
+        new AlertDialog.Builder(this).setTitle("Smart Follow-up").setItems(labels,(d,which)->{
+            if(which==3){openWhatsApp(c);return;}
+            String msg;
+            if(which==0)msg="Assalam-o-Alaikum "+c.name+", kindly apne pending tax/FBR documents share kar dein taa ke filing time par complete ho sake.";
+            else if(which==1)msg="Assalam-o-Alaikum "+c.name+", aap ki FBR return due date "+safe(c.nextDue)+" hai. Kindly required information/documents jaldi provide kar dein.";
+            else msg="Assalam-o-Alaikum "+c.name+", aap ki consultancy fee PKR "+String.format(Locale.US,"%,.0f",db.clientOutstandingPayments(c.id))+" outstanding hai. Kindly payment update kar dein. Shukriya.";
+            openWhatsAppMessage(c,msg);
+        }).show();
+    }
+
+    private void openWhatsAppMessage(DBHelper.Client c,String message){
+        try{
+            String no=safe(c.whatsapp).replaceAll("[^0-9]","");
+            if(no.startsWith("0"))no="92"+no.substring(1);
+            if(no.isEmpty()||"—".equals(no)){toast("WhatsApp number missing");return;}
+            String url="https://wa.me/"+no+"?text="+URLEncoder.encode(message,"UTF-8");
+            startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));
+        }catch(Exception e){toast("WhatsApp open nahi ho saka");}
     }
 
     private void showGlobalSearch(){
@@ -956,6 +1043,7 @@ public class MainActivity extends Activity {
         body.addView(menuRow("FBR Portal",R.drawable.ic_fbr_portal,()->openUrl("https://iris.fbr.gov.pk/")));
         body.addView(menuRow("Client Database",R.drawable.ic_people,()->showClients("")));
         body.addView(menuRow("Global Search",R.drawable.ic_search,()->showGlobalSearch()));
+        body.addView(menuRow("Executive Command Center",R.drawable.ic_grid,()->showExecutiveCenter()));
         body.addView(menuRow("Filing Center",R.drawable.ic_doc,()->showFilingsHub()));
         body.addView(menuRow("Tax Calendar",R.drawable.ic_calendar,()->showTaxCalendar()));
         body.addView(menuRow("Reminder Center",R.drawable.ic_bell,()->showReminders()));
@@ -1367,7 +1455,7 @@ public class MainActivity extends Activity {
     }
     private void showSettingsInfo(){
         activeNav="more";shell("Settings","FBR Return Filer preferences");
-        body.addView(infoCard("App","FBR Return Filer Pro V17",R.drawable.ic_settings,false));
+        body.addView(infoCard("App","FBR Return Filer Pro V18",R.drawable.ic_settings,false));
         body.addView(infoCard("Storage","Private SQLite + JSON backup",R.drawable.ic_doc,false));
         body.addView(infoCard("Reminder channel","Local notification + WhatsApp",R.drawable.ic_bell,false));
 
