@@ -58,6 +58,16 @@ public class BackupAndReminderTest {
         db.close();
     }
 
+    @Test public void workloadAnalyticsAreAvailable() {
+        DBHelper db=new DBHelper(context);
+        assertTrue(db.countOverdueFilings()>=0);
+        assertTrue(db.countHighPriorityTasks()>=0);
+        assertTrue(db.countRemindersNext7Days()>=0);
+        assertTrue(db.outstandingPayments()>=0);
+        assertFalse(db.allFilings().isEmpty());
+        db.close();
+    }
+
     @Test public void reminderCanCompleteAndMove() {
         DBHelper db=new DBHelper(context);
         long now=System.currentTimeMillis()+60000L;
