@@ -58,6 +58,37 @@ public class BackupAndReminderTest {
         db.close();
     }
 
+    @Test public void duplicateDetectionAndClientFinancialsWork() {
+        DBHelper db=new DBHelper(context);
+        DBHelper.Client ahmed=db.client(1);
+        assertNotNull(ahmed);
+        assertTrue(db.clientExists("ntn",ahmed.ntn,0));
+        assertTrue(db.duplicateWarning(ahmed.ntn,ahmed.cnic,ahmed.whatsapp,ahmed.phone,0).contains("NTN"));
+        assertTrue(db.clientTotalPayments(1)>=db.clientPaidPayments(1));
+        assertTrue(db.clientOutstandingPayments(1)>=0);
+        assertTrue(db.countClientPendingFilings(1)>=0);
+        assertTrue(db.countClientOpenTasks(1)>=0);
+        db.close();
+    }
+
+    @Test public void taskDeleteAndReminderSnoozeWork() {
+        DBHelper db=new DBHelper(context);
+        long task=db.addTask(1,"Temporary QA Task","Today","Low","Delete me");
+        assertNotNull(db.task(task));
+        db.deleteTask(task);
+        assertNull(db.task(task));
+
+        long at=System.currentTimeMillis()+60000L;
+        long rem=db.addReminder(1,"Snooze QA","Test",at,"Once","Local");
+        long later=at+86400000L;
+        db.snoozeReminder(rem,later);
+        DBHelper.Reminder found=null;
+        for(DBHelper.Reminder r:db.reminders(0))if(r.id==rem)found=r;
+        assertNotNull(found);
+        assertEquals(later,found.at);
+        db.close();
+    }
+
     @Test public void workloadAnalyticsAreAvailable() {
         DBHelper db=new DBHelper(context);
         assertTrue(db.countOverdueFilings()>=0);
