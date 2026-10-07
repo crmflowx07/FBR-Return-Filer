@@ -35,10 +35,11 @@ public class MainActivityFlowTest {
         Field rf=MainActivity.class.getDeclaredField("root");
         rf.setAccessible(true);
         View dashboard=(View)rf.get(activity);
-        assertNotNull("V13 must create dashboard root on launch",dashboard);
-        assertNull("V13 must not show Get Started",findText(dashboard,"Get Started"));
-        assertNotNull("V13 must launch dashboard immediately",findText(dashboard,"Good Morning"));
+        assertNotNull("V14 must create dashboard root on launch",dashboard);
+        assertNull("V14 must not show Get Started",findText(dashboard,"Get Started"));
+        assertNotNull("V14 must launch dashboard immediately",findText(dashboard,"Good Morning"));
         assertNotNull("Dashboard must show Total Clients",findText(dashboard,"Total Clients"));
+        assertNotNull("V14 dashboard must show Open Tasks",findText(dashboard,"Open Tasks"));
     }
 
     @Test public void dashboardRendersWithoutCrash() throws Exception {
@@ -62,6 +63,8 @@ public class MainActivityFlowTest {
         assertEquals(12,db.countPending());
         assertEquals(28,db.countFiled());
         assertEquals(5,db.countReminders());
+        assertTrue(db.countPendingTasks()>=3);
+        assertTrue(db.auditLogs(0).size()>=3);
         db.close();
     }
 }
