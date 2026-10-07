@@ -35,11 +35,11 @@ public class MainActivityFlowTest {
         Field rf=MainActivity.class.getDeclaredField("root");
         rf.setAccessible(true);
         View dashboard=(View)rf.get(activity);
-        assertNotNull("V14 must create dashboard root on launch",dashboard);
-        assertNull("V14 must not show Get Started",findText(dashboard,"Get Started"));
-        assertNotNull("V14 must launch dashboard immediately",findText(dashboard,"Good Morning"));
+        assertNotNull("V19 must create dashboard root on launch",dashboard);
+        assertNull("V19 must not show Get Started",findText(dashboard,"Get Started"));
+        assertNotNull("V19 must launch dashboard immediately with greeting",findText(dashboard,"Good "));
         assertNotNull("Dashboard must show Total Clients",findText(dashboard,"Total Clients"));
-        assertNotNull("V14 dashboard must show Open Tasks",findText(dashboard,"Open Tasks"));
+        assertNotNull("V19 dashboard must show Open Tasks",findText(dashboard,"Open Tasks"));
     }
 
     @Test public void dashboardRendersWithoutCrash() throws Exception {
@@ -53,7 +53,7 @@ public class MainActivityFlowTest {
         assertNotNull("Dashboard root must be created",dashboard);
         assertNotNull("Dashboard must show Total Clients",findText(dashboard,"Total Clients"));
         assertNotNull("Dashboard must show Quick Actions",findText(dashboard,"Quick Actions"));
-        assertNotNull("Dashboard must show Good Morning",findText(dashboard,"Good Morning"));
+        assertNotNull("Dashboard must show dynamic greeting",findText(dashboard,"Good "));
     }
 
     @Test public void databaseSeedsCoreErpData(){
