@@ -7,7 +7,7 @@ import java.util.*;
 import org.json.*;
 
 public class DBHelper extends SQLiteOpenHelper {
-    public static final int VERSION = 5;
+    public static final int VERSION = 6;
     public DBHelper(Context c){ super(c,"property_return_filer.db",null,VERSION); }
 
     @Override public void onCreate(SQLiteDatabase db){
@@ -16,19 +16,22 @@ public class DBHelper extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE reminders(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,message TEXT,scheduledAt INTEGER,repeatRule TEXT,status TEXT,channel TEXT)");
         db.execSQL("CREATE TABLE payments(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,amount REAL,dueDate TEXT,status TEXT,notes TEXT)");
         db.execSQL("CREATE TABLE documents(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,category TEXT,status TEXT,notes TEXT)");
+        db.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,dueDate TEXT,priority TEXT,status TEXT,notes TEXT,createdAt INTEGER)");
+        db.execSQL("CREATE TABLE audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,action TEXT,detail TEXT,createdAt INTEGER)");
         seedExactDemo(db);
     }
 
     @Override public void onUpgrade(SQLiteDatabase db,int oldV,int newV){
-        // Safe reset for early test builds whose schemas were different.
-        // DROP IF EXISTS avoids crashes when upgrading from v1/v2/v3 builds
-        // that did not yet contain all ERP tables.
-        db.execSQL("DROP TABLE IF EXISTS documents");
-        db.execSQL("DROP TABLE IF EXISTS payments");
-        db.execSQL("DROP TABLE IF EXISTS reminders");
-        db.execSQL("DROP TABLE IF EXISTS filings");
-        db.execSQL("DROP TABLE IF EXISTS clients");
-        onCreate(db);
+        // Non-destructive migrations: preserve existing client ERP data.
+        db.execSQL("CREATE TABLE IF NOT EXISTS clients(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,whatsapp TEXT,phone TEXT,cnic TEXT,ntn TEXT,business TEXT,taxType TEXT,status TEXT,nextDue TEXT,email TEXT,address TEXT,notes TEXT,createdAt INTEGER)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS filings(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,month TEXT,year INTEGER,type TEXT,dueDate TEXT,status TEXT,filedDate TEXT,notes TEXT)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS reminders(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,message TEXT,scheduledAt INTEGER,repeatRule TEXT,status TEXT,channel TEXT)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,amount REAL,dueDate TEXT,status TEXT,notes TEXT)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS documents(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,category TEXT,status TEXT,notes TEXT)");
+        if(oldV<6){
+            db.execSQL("CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,dueDate TEXT,priority TEXT,status TEXT,notes TEXT,createdAt INTEGER)");
+            db.execSQL("CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,action TEXT,detail TEXT,createdAt INTEGER)");
+        }
     }
 
     private long client(SQLiteDatabase db,String n,String w,String ntn,String business,String type,String status,String due,String cnic){
@@ -95,14 +98,28 @@ public class DBHelper extends SQLiteOpenHelper {
 
         ContentValues p=new ContentValues();p.put("clientId",ids[0]);p.put("title","Monthly Consultancy");p.put("amount",25000);p.put("dueDate","10 Aug 2026");p.put("status","Paid");p.put("notes","Received");db.insert("payments",null,p);
         ContentValues d=new ContentValues();d.put("clientId",ids[0]);d.put("title","Bank Statement");d.put("category","FBR Documents");d.put("status","Received");d.put("notes","July statement");db.insert("documents",null,d);
+
+        task(db,ids[0],"Verify Ahmed Raza bank statement","Today","High","Pending","Check completeness before return filing");
+        task(db,ids[2],"Follow up Faisal Ahmed documents","Today","High","Pending","WhatsApp client for missing documents");
+        task(db,ids[5],"Prepare Mubeen Traders ITR","Tomorrow","Medium","Pending","Review ledger and tax computation");
+        audit(db,ids[0],"CLIENT_CREATED","Ahmed Raza profile initialized");
+        audit(db,ids[0],"DOCUMENT_RECEIVED","Bank Statement received");
+        audit(db,ids[0],"PAYMENT_RECORDED","Monthly Consultancy PKR 25,000");
+    }
+
+    private void task(SQLiteDatabase db,long cid,String title,String due,String priority,String status,String notes){
+        ContentValues v=new ContentValues();v.put("clientId",cid);v.put("title",title);v.put("dueDate",due);v.put("priority",priority);v.put("status",status);v.put("notes",notes);v.put("createdAt",System.currentTimeMillis());db.insert("tasks",null,v);
+    }
+    private void audit(SQLiteDatabase db,long cid,String action,String detail){
+        ContentValues v=new ContentValues();v.put("clientId",cid);v.put("action",action);v.put("detail",detail);v.put("createdAt",System.currentTimeMillis());db.insert("audit_logs",null,v);
     }
 
     public long saveClient(long id,String name,String whatsapp,String phone,String cnic,String ntn,String business,String taxType,String status,String nextDue,String email,String address,String notes){
         ContentValues v=new ContentValues();v.put("name",name);v.put("whatsapp",whatsapp);v.put("phone",phone);v.put("cnic",cnic);v.put("ntn",ntn);v.put("business",business);v.put("taxType",taxType);v.put("status",status);v.put("nextDue",nextDue);v.put("email",email);v.put("address",address);v.put("notes",notes);
-        if(id>0){getWritableDatabase().update("clients",v,"id=?",new String[]{String.valueOf(id)});return id;}
-        v.put("createdAt",System.currentTimeMillis());return getWritableDatabase().insert("clients",null,v);
+        if(id>0){getWritableDatabase().update("clients",v,"id=?",new String[]{String.valueOf(id)});addAudit(id,"CLIENT_UPDATED","Client profile updated");return id;}
+        v.put("createdAt",System.currentTimeMillis());long created=getWritableDatabase().insert("clients",null,v);addAudit(created,"CLIENT_CREATED","New client added");return created;
     }
-    public void deleteClient(long id){SQLiteDatabase d=getWritableDatabase();String[] a={""+id};d.delete("filings","clientId=?",a);d.delete("reminders","clientId=?",a);d.delete("payments","clientId=?",a);d.delete("documents","clientId=?",a);d.delete("clients","id=?",a);}
+    public void deleteClient(long id){SQLiteDatabase d=getWritableDatabase();String[] a={""+id};d.delete("filings","clientId=?",a);d.delete("reminders","clientId=?",a);d.delete("payments","clientId=?",a);d.delete("documents","clientId=?",a);d.delete("tasks","clientId=?",a);d.delete("audit_logs","clientId=?",a);d.delete("clients","id=?",a);}
 
     public Client client(long id){Cursor c=getReadableDatabase().rawQuery("SELECT id,name,whatsapp,phone,cnic,ntn,business,taxType,status,nextDue,email,address,notes FROM clients WHERE id=?",new String[]{""+id});Client x=null;if(c.moveToFirst())x=fromClient(c);c.close();return x;}
     private Client fromClient(Cursor c){return new Client(c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getString(7),c.getString(8),c.getString(9),c.getString(10),c.getString(11),c.getString(12));}
@@ -149,12 +166,32 @@ public class DBHelper extends SQLiteOpenHelper {
     public void setDocumentStatus(long id,String status){ContentValues v=new ContentValues();v.put("status",status);getWritableDatabase().update("documents",v,"id=?",new String[]{""+id});}
     public List<Document> documents(long clientId){ArrayList<Document> l=new ArrayList<>();Cursor c=getReadableDatabase().rawQuery("SELECT id,title,category,status,notes FROM documents WHERE clientId=? ORDER BY id DESC",new String[]{""+clientId});while(c.moveToNext())l.add(new Document(c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4)));c.close();return l;}
 
+    public long addTask(long clientId,String title,String due,String priority,String notes){
+        ContentValues v=new ContentValues();v.put("clientId",clientId);v.put("title",title);v.put("dueDate",due);v.put("priority",priority);v.put("status","Pending");v.put("notes",notes);v.put("createdAt",System.currentTimeMillis());
+        long id=getWritableDatabase().insert("tasks",null,v);addAudit(clientId,"TASK_CREATED",title);return id;
+    }
+    public void setTaskStatus(long id,String status){
+        Task t=task(id);ContentValues v=new ContentValues();v.put("status",status);getWritableDatabase().update("tasks",v,"id=?",new String[]{""+id});
+        if(t!=null)addAudit(t.clientId,"TASK_"+status.toUpperCase(Locale.US).replace(" ","_"),t.title);
+    }
+    public Task task(long id){Cursor c=getReadableDatabase().rawQuery("SELECT id,clientId,title,dueDate,priority,status,notes,createdAt FROM tasks WHERE id=?",new String[]{""+id});Task t=null;if(c.moveToFirst())t=fromTask(c);c.close();return t;}
+    private Task fromTask(Cursor c){return new Task(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getLong(7));}
+    public List<Task> tasks(long clientId){
+        ArrayList<Task> out=new ArrayList<>();String where=clientId>0?" WHERE clientId="+clientId:"";Cursor c=getReadableDatabase().rawQuery("SELECT id,clientId,title,dueDate,priority,status,notes,createdAt FROM tasks"+where+" ORDER BY CASE priority WHEN 'High' THEN 0 WHEN 'Medium' THEN 1 ELSE 2 END, id DESC",null);while(c.moveToNext())out.add(fromTask(c));c.close();return out;
+    }
+    public int countPendingTasks(){return scalar("SELECT COUNT(*) FROM tasks WHERE status!='Completed'");}
+
+    public void addAudit(long clientId,String action,String detail){audit(getWritableDatabase(),clientId,action,detail);}
+    public List<AuditLog> auditLogs(long clientId){
+        ArrayList<AuditLog> out=new ArrayList<>();String where=clientId>0?" WHERE a.clientId="+clientId:"";Cursor c=getReadableDatabase().rawQuery("SELECT a.id,a.clientId,c.name,a.action,a.detail,a.createdAt FROM audit_logs a LEFT JOIN clients c ON c.id=a.clientId"+where+" ORDER BY a.createdAt DESC,a.id DESC",null);while(c.moveToNext())out.add(new AuditLog(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getLong(5)));c.close();return out;
+    }
+
     public String exportJson() throws JSONException {
         JSONObject root=new JSONObject();
         root.put("format","FBR_RETURN_FILER_BACKUP");
         root.put("version",1);
         root.put("exportedAt",System.currentTimeMillis());
-        String[] tables={"clients","filings","reminders","payments","documents"};
+        String[] tables={"clients","filings","reminders","payments","documents","tasks","audit_logs"};
         SQLiteDatabase db=getReadableDatabase();
         for(String table:tables){
             JSONArray arr=new JSONArray();
@@ -187,12 +224,16 @@ public class DBHelper extends SQLiteOpenHelper {
             db.delete("payments",null,null);
             db.delete("reminders",null,null);
             db.delete("filings",null,null);
+            db.delete("tasks",null,null);
+            db.delete("audit_logs",null,null);
             db.delete("clients",null,null);
             importTable(db,root.optJSONArray("clients"),"clients");
             importTable(db,root.optJSONArray("filings"),"filings");
             importTable(db,root.optJSONArray("reminders"),"reminders");
             importTable(db,root.optJSONArray("payments"),"payments");
             importTable(db,root.optJSONArray("documents"),"documents");
+            importTable(db,root.optJSONArray("tasks"),"tasks");
+            importTable(db,root.optJSONArray("audit_logs"),"audit_logs");
             db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
     }
@@ -213,6 +254,15 @@ public class DBHelper extends SQLiteOpenHelper {
             }
             db.insertOrThrow(table,null,v);
         }
+    }
+
+    public static class Task{
+        public final long id,clientId,createdAt;public final String title,due,priority,status,notes;
+        public Task(long id,long clientId,String title,String due,String priority,String status,String notes,long createdAt){this.id=id;this.clientId=clientId;this.title=title;this.due=due;this.priority=priority;this.status=status;this.notes=notes;this.createdAt=createdAt;}
+    }
+    public static class AuditLog{
+        public final long id,clientId,createdAt;public final String client,action,detail;
+        public AuditLog(long id,long clientId,String client,String action,String detail,long createdAt){this.id=id;this.clientId=clientId;this.client=client;this.action=action;this.detail=detail;this.createdAt=createdAt;}
     }
 
     public static class Client{public long id;public String name,whatsapp,phone,cnic,ntn,business,taxType,status,nextDue,email,address,notes;Client(long id,String name,String whatsapp,String phone,String cnic,String ntn,String business,String taxType,String status,String nextDue,String email,String address,String notes){this.id=id;this.name=name;this.whatsapp=whatsapp;this.phone=phone;this.cnic=cnic;this.ntn=ntn;this.business=business;this.taxType=taxType;this.status=status;this.nextDue=nextDue;this.email=email;this.address=address;this.notes=notes;}}
