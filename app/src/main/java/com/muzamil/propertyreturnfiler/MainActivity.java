@@ -462,6 +462,11 @@ public class MainActivity extends Activity {
         Space wrGap=new Space(this);workRow.addView(wrGap,new LinearLayout.LayoutParams(dp(10),1));
         workRow.addView(metric("Audit Events",String.valueOf(db.auditLogs(0).size()),"Recorded actions",R.drawable.ic_grid,BLUE,Color.rgb(232,244,255)),new LinearLayout.LayoutParams(0,dp(112),1));
         body.addView(workRow);
+        LinearLayout officeRow=new LinearLayout(this);
+        officeRow.addView(metric("Open Notices",String.valueOf(db.countOpenNotices()),"FBR correspondence",R.drawable.ic_doc,RED,Color.rgb(255,236,238)),new LinearLayout.LayoutParams(0,dp(112),1));
+        Space org=new Space(this);officeRow.addView(org,new LinearLayout.LayoutParams(dp(10),1));
+        officeRow.addView(metric("Net Profit","PKR "+String.format(Locale.US,"%,.0f",db.netProfit()),"Paid fees - expenses",R.drawable.ic_payment,GREEN,Color.rgb(228,249,238)),new LinearLayout.LayoutParams(0,dp(112),1));
+        body.addView(officeRow);
 
         LinearLayout qh=new LinearLayout(this);qh.setGravity(Gravity.CENTER_VERTICAL);qh.addView(section("Quick Actions"),new LinearLayout.LayoutParams(0,-2,1));TextView view=tv("Executive Center",11,BLUE,true);view.setOnClickListener(v->showExecutiveCenter());qh.addView(view);body.addView(qh);
         LinearLayout quick1=new LinearLayout(this);
@@ -485,6 +490,13 @@ public class MainActivity extends Activity {
         Space q6=new Space(this);quick3.addView(q6,new LinearLayout.LayoutParams(dp(8),1));
         quick3.addView(quick("Risk Center",R.drawable.ic_bell,()->showRiskCenter()),new LinearLayout.LayoutParams(0,dp(82),1));
         body.addView(quick3);
+        LinearLayout quick4=new LinearLayout(this);
+        quick4.addView(quick("FBR Notices",R.drawable.ic_doc,()->showNoticesHub()),new LinearLayout.LayoutParams(0,dp(82),1));
+        Space q7=new Space(this);quick4.addView(q7,new LinearLayout.LayoutParams(dp(8),1));
+        quick4.addView(quick("Expenses",R.drawable.ic_payment,()->showExpensesHub()),new LinearLayout.LayoutParams(0,dp(82),1));
+        Space q8=new Space(this);quick4.addView(q8,new LinearLayout.LayoutParams(dp(8),1));
+        quick4.addView(quick("Profit",R.drawable.ic_grid,()->showReports()),new LinearLayout.LayoutParams(0,dp(82),1));
+        body.addView(quick4);
 
         body.addView(section("Compliance Overview"));
         LinearLayout compliance=card(20);
@@ -749,6 +761,11 @@ public class MainActivity extends Activity {
         Space wsg3=new Space(this);ws3.addView(wsg3,new LinearLayout.LayoutParams(dp(8),1));
         ws3.addView(workspaceTile("Activity",db.auditLogs(id).size()+" events",R.drawable.ic_grid,BLUE,()->showAuditTrail(id)),new LinearLayout.LayoutParams(0,dp(96),1));
         body.addView(ws3);
+        LinearLayout ws4=new LinearLayout(this);
+        ws4.addView(workspaceTile("FBR Notices",db.notices(id).size()+" records",R.drawable.ic_doc,RED,()->showClientNotices(id)),new LinearLayout.LayoutParams(0,dp(96),1));
+        Space wsg4=new Space(this);ws4.addView(wsg4,new LinearLayout.LayoutParams(dp(8),1));
+        ws4.addView(workspaceTile("Statement","Share summary",R.drawable.ic_payment,PURPLE,()->shareClientSummary(c)),new LinearLayout.LayoutParams(0,dp(96),1));
+        body.addView(ws4);
 
         body.addView(section("Compliance Health"));
         int score=clientComplianceScore(id,c);
@@ -869,6 +886,8 @@ public class MainActivity extends Activity {
         LinearLayout finance=card(18);
         finance.addView(infoLineReport("Total recorded fees","PKR "+String.format(Locale.US,"%,.0f",db.totalPayments()),BLUE));
         finance.addView(infoLineReport("Paid fees","PKR "+String.format(Locale.US,"%,.0f",db.paidPayments()),GREEN));
+        finance.addView(infoLineReport("Business expenses","PKR "+String.format(Locale.US,"%,.0f",db.totalExpenses()),RED));
+        finance.addView(infoLineReport("Net profit","PKR "+String.format(Locale.US,"%,.0f",db.netProfit()),db.netProfit()>=0?GREEN:RED));
         finance.addView(infoLineReport("Pending payment records",String.valueOf(db.countPendingPayments()),ORANGE));
         finance.addView(infoLineReport("Collection rate",String.format(Locale.US,"%.1f%%",db.collectionRate()),db.collectionRate()>=80?GREEN:(db.collectionRate()>=50?ORANGE:RED)));
         body.addView(finance);
@@ -897,6 +916,7 @@ public class MainActivity extends Activity {
         risk.addView(infoLineReport("Outstanding fees","PKR "+String.format(Locale.US,"%,.0f",db.outstandingPayments()),PURPLE));
         risk.addView(infoLineReport("7-day reminders",String.valueOf(db.countRemindersNext7Days()),BLUE));
         risk.addView(infoLineReport("Clients with receivables",String.valueOf(db.countClientsWithOutstandingFees()),PURPLE));
+        risk.addView(infoLineReport("Open FBR notices",String.valueOf(db.countOpenNotices()),db.countOpenNotices()>0?RED:GREEN));
         body.addView(risk);
 
         body.addView(section("Receivables Aging"));
@@ -959,6 +979,9 @@ public class MainActivity extends Activity {
         kpi.addView(infoLineReport("Return compliance",String.format(Locale.US,"%.1f%%",db.countFiled()*100.0/Math.max(1,db.countFiled()+db.countPending())),GREEN));
         kpi.addView(infoLineReport("Collection rate",String.format(Locale.US,"%.1f%%",db.collectionRate()),db.collectionRate()>=80?GREEN:ORANGE));
         kpi.addView(infoLineReport("Outstanding fees","PKR "+String.format(Locale.US,"%,.0f",db.outstandingPayments()),PURPLE));
+        kpi.addView(infoLineReport("Expenses","PKR "+String.format(Locale.US,"%,.0f",db.totalExpenses()),RED));
+        kpi.addView(infoLineReport("Net profit","PKR "+String.format(Locale.US,"%,.0f",db.netProfit()),db.netProfit()>=0?GREEN:RED));
+        kpi.addView(infoLineReport("Open FBR notices",String.valueOf(db.countOpenNotices()),db.countOpenNotices()>0?RED:GREEN));
         body.addView(kpi);
 
         body.addView(section("Next 30 Days"));
@@ -1005,6 +1028,83 @@ public class MainActivity extends Activity {
         }catch(Exception e){toast("WhatsApp open nahi ho saka");}
     }
 
+    private void showNoticesHub(){
+        activeNav="more";shell("FBR Notices Center","Track notices, references, deadlines and responses");
+        Button add=actionButton("Add FBR Notice",R.drawable.ic_add,true);add.setOnClickListener(v->noticeForm(0));body.addView(add,new LinearLayout.LayoutParams(-1,dp(52)));
+        body.addView(spacer(8));
+        LinearLayout summary=card(18);summary.addView(infoLineReport("Open notices",String.valueOf(db.countOpenNotices()),db.countOpenNotices()>0?RED:GREEN));summary.addView(infoLineReport("All notices",String.valueOf(db.notices(0).size()),BLUE));body.addView(summary);
+        body.addView(section("Notice Register"));
+        List<DBHelper.Notice> rows=db.notices(0);
+        if(rows.isEmpty()){body.addView(emptyState("No FBR notices","Add notices received for clients and track their response status."));return;}
+        for(DBHelper.Notice n:rows)body.addView(noticeCard(n,true));
+    }
+
+    private void showClientNotices(long clientId){
+        DBHelper.Client cl=db.client(clientId);activeNav="clients";shell("FBR Notices",cl==null?"Client notices":cl.name);
+        Button add=actionButton("Add Client Notice",R.drawable.ic_add,true);add.setOnClickListener(v->noticeForm(clientId));body.addView(add,new LinearLayout.LayoutParams(-1,dp(52)));
+        body.addView(spacer(8));
+        List<DBHelper.Notice> rows=db.notices(clientId);
+        if(rows.isEmpty())body.addView(emptyState("No notices","No FBR correspondence recorded for this client."));
+        for(DBHelper.Notice n:rows)body.addView(noticeCard(n,true));
+    }
+
+    private View noticeCard(DBHelper.Notice n,boolean actions){
+        LinearLayout x=card(16);
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);
+        tx.addView(tv(n.title,13,INK,true));tx.addView(tv((n.client==null?"General":n.client)+" • "+safe(n.referenceNo),10,MUTED,false));
+        tx.addView(iconText("Due "+safe(n.due),R.drawable.ic_calendar,10,RED,true));top.addView(tx,new LinearLayout.LayoutParams(0,-2,1));
+        int col=("Resolved".equals(n.status)||"Closed".equals(n.status))?GREEN:("Responded".equals(n.status)?BLUE:RED);
+        TextView badge=tv(n.status,9,col,true);badge.setGravity(Gravity.CENTER);badge.setBackground(solid(statusBg(("Resolved".equals(n.status)||"Closed".equals(n.status))?"Filed":"Pending"),12));top.addView(badge,new LinearLayout.LayoutParams(dp(76),dp(28)));x.addView(top);
+        if(n.notes!=null&&!n.notes.trim().isEmpty())x.addView(tv(n.notes,10,MUTED,false));
+        if(actions){
+            LinearLayout controls=new LinearLayout(this);
+            Button status=actionButton("Update Status",R.drawable.ic_doc,false);status.setOnClickListener(v->showNoticeStatusDialog(n));controls.addView(status,new LinearLayout.LayoutParams(0,dp(40),1));
+            Space g=new Space(this);controls.addView(g,new LinearLayout.LayoutParams(dp(8),1));
+            Button del=actionButton("Delete",R.drawable.ic_more,false);del.setTextColor(RED);del.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Delete notice?").setMessage(n.title).setNegativeButton("Cancel",null).setPositiveButton("Delete",(d,w)->{db.deleteNotice(n.id);if(n.clientId>0)showClientNotices(n.clientId);else showNoticesHub();}).show());controls.addView(del,new LinearLayout.LayoutParams(0,dp(40),1));
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(40));cp.setMargins(0,dp(8),0,0);x.addView(controls,cp);
+        }
+        x.setOnClickListener(v->{if(n.clientId>0)showClient(n.clientId);});return x;
+    }
+
+    private void showNoticeStatusDialog(DBHelper.Notice n){
+        String[] s={"Open","In Progress","Responded","Resolved","Closed"};
+        new AlertDialog.Builder(this).setTitle("Notice Status").setItems(s,(d,w)->{db.setNoticeStatus(n.id,s[w]);if(n.clientId>0)showClientNotices(n.clientId);else showNoticesHub();}).show();
+    }
+
+    private void noticeForm(long presetClientId){
+        LinearLayout f=new LinearLayout(this);f.setOrientation(LinearLayout.VERTICAL);f.setPadding(dp(18),dp(8),dp(18),dp(8));
+        List<DBHelper.Client> clients=db.clients("");ArrayList<String> labels=new ArrayList<>();labels.add("General Notice");int selected=0;
+        for(int i=0;i<clients.size();i++){DBHelper.Client cl=clients.get(i);labels.add(cl.name);if(cl.id==presetClientId)selected=i+1;}
+        TextView l=tv("Client",11,MUTED,true);f.addView(l);Spinner client=new Spinner(this);client.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels));client.setSelection(selected);f.addView(client,new LinearLayout.LayoutParams(-1,dp(50)));
+        EditText title=field(f,"Notice title","FBR Information Notice");EditText ref=field(f,"Reference number","");EditText due=dateField(f,"Due date",new SimpleDateFormat("dd MMM yyyy",Locale.US).format(new Date(System.currentTimeMillis()+7L*86400000L)));
+        Spinner status=dropdown(f,"Status",new String[]{"Open","In Progress","Responded","Resolved","Closed"},"Open");EditText notes=field(f,"Response notes","");
+        new AlertDialog.Builder(this).setTitle("Add FBR Notice").setView(f).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{
+            long cid=0;int pos=client.getSelectedItemPosition();if(pos>0&&pos-1<clients.size())cid=clients.get(pos-1).id;
+            if(val(title).isEmpty()){toast("Notice title required");return;}
+            db.addNotice(cid,val(title),val(ref),val(due),String.valueOf(status.getSelectedItem()),val(notes));toast("Notice added");if(cid>0)showClientNotices(cid);else showNoticesHub();
+        }).show();
+    }
+
+    private void showExpensesHub(){
+        activeNav="more";shell("Expense Ledger","Office costs and profit visibility");
+        Button add=actionButton("Add Expense",R.drawable.ic_add,true);add.setOnClickListener(v->expenseForm());body.addView(add,new LinearLayout.LayoutParams(-1,dp(52)));body.addView(spacer(8));
+        LinearLayout hero=card(20);hero.setBackground(gradient(Color.rgb(243,92,92),Color.rgb(196,55,87),20));hero.addView(tv("Total Expenses",12,0xFFFFE9EC,false));hero.addView(tv("PKR "+String.format(Locale.US,"%,.0f",db.totalExpenses()),28,Color.WHITE,true));hero.addView(tv("Net Profit: PKR "+String.format(Locale.US,"%,.0f",db.netProfit()),11,Color.WHITE,true));body.addView(hero);
+        body.addView(section("Expense Entries"));
+        List<DBHelper.Expense> rows=db.expenses();
+        if(rows.isEmpty())body.addView(emptyState("No expenses","Add office rent, utilities, staff, travel or other business expenses."));
+        for(DBHelper.Expense e:rows){
+            LinearLayout x=card(16);LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.addView(tv(e.title,13,INK,true));tx.addView(tv(e.category+" • "+safe(e.date),10,MUTED,false));if(e.notes!=null&&!e.notes.trim().isEmpty())tx.addView(tv(e.notes,9,MUTED,false));row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));row.addView(tv("PKR "+String.format(Locale.US,"%,.0f",e.amount),13,RED,true));x.addView(row);
+            Button del=actionButton("Delete Expense",R.drawable.ic_more,false);del.setTextColor(RED);del.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Delete expense?").setMessage(e.title).setNegativeButton("Cancel",null).setPositiveButton("Delete",(d,w)->{db.deleteExpense(e.id);showExpensesHub();}).show());x.addView(del,new LinearLayout.LayoutParams(-1,dp(40)));body.addView(x);
+        }
+    }
+
+    private void expenseForm(){
+        LinearLayout f=new LinearLayout(this);f.setOrientation(LinearLayout.VERTICAL);f.setPadding(dp(18),dp(8),dp(18),dp(8));
+        EditText title=field(f,"Expense title","Office Expense");Spinner category=dropdown(f,"Category",new String[]{"Office","Utilities","Staff","Travel","Marketing","Software","Other"},"Office");EditText amount=field(f,"Amount","0");amount.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);EditText date=dateField(f,"Date",new SimpleDateFormat("dd MMM yyyy",Locale.US).format(new Date()));EditText notes=field(f,"Notes","");
+        new AlertDialog.Builder(this).setTitle("Add Expense").setView(f).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{double a=0;try{a=Double.parseDouble(val(amount));}catch(Exception ignored){}if(val(title).isEmpty()||a<=0){toast("Valid title and amount required");return;}db.addExpense(val(title),String.valueOf(category.getSelectedItem()),a,val(date),val(notes));toast("Expense added");showExpensesHub();}).show();
+    }
+
     private void showGlobalSearch(){
         activeNav="more";shell("Global Search","Find clients, tasks and reminders");
         EditText q=new EditText(this);q.setHint("Search name, NTN, task or reminder...");q.setSingleLine(true);q.setTextSize(13);q.setPadding(dp(12),0,dp(12),0);q.setBackground(solid(Color.WHITE,16));
@@ -1045,10 +1145,12 @@ public class MainActivity extends Activity {
         body.addView(menuRow("Global Search",R.drawable.ic_search,()->showGlobalSearch()));
         body.addView(menuRow("Executive Command Center",R.drawable.ic_grid,()->showExecutiveCenter()));
         body.addView(menuRow("Filing Center",R.drawable.ic_doc,()->showFilingsHub()));
+        body.addView(menuRow("FBR Notices Center",R.drawable.ic_doc,()->showNoticesHub()));
         body.addView(menuRow("Tax Calendar",R.drawable.ic_calendar,()->showTaxCalendar()));
         body.addView(menuRow("Reminder Center",R.drawable.ic_bell,()->showReminders()));
         body.addView(menuRow("Documents Checklist",R.drawable.ic_doc,()->showDocumentsHub()));
         body.addView(menuRow("Payments & Fees",R.drawable.ic_payment,()->showPaymentsHub()));
+        body.addView(menuRow("Expense Ledger",R.drawable.ic_payment,()->showExpensesHub()));
         body.addView(menuRow("Receivables Center",R.drawable.ic_payment,()->showReceivables()));
         body.addView(menuRow("Client Risk Center",R.drawable.ic_bell,()->showRiskCenter()));
         body.addView(menuRow("Document Intelligence",R.drawable.ic_doc,()->showDocumentIntelligence()));
@@ -1455,7 +1557,7 @@ public class MainActivity extends Activity {
     }
     private void showSettingsInfo(){
         activeNav="more";shell("Settings","FBR Return Filer preferences");
-        body.addView(infoCard("App","FBR Return Filer Pro V18",R.drawable.ic_settings,false));
+        body.addView(infoCard("App","FBR Return Filer Pro V19",R.drawable.ic_settings,false));
         body.addView(infoCard("Storage","Private SQLite + JSON backup",R.drawable.ic_doc,false));
         body.addView(infoCard("Reminder channel","Local notification + WhatsApp",R.drawable.ic_bell,false));
 
