@@ -125,6 +125,20 @@ public class DBHelper extends SQLiteOpenHelper {
     public Client client(long id){Cursor c=getReadableDatabase().rawQuery("SELECT id,name,whatsapp,phone,cnic,ntn,business,taxType,status,nextDue,email,address,notes FROM clients WHERE id=?",new String[]{""+id});Client x=null;if(c.moveToFirst())x=fromClient(c);c.close();return x;}
     private Client fromClient(Cursor c){return new Client(c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getString(7),c.getString(8),c.getString(9),c.getString(10),c.getString(11),c.getString(12));}
     public List<Client> clients(String q){ArrayList<Client> out=new ArrayList<>();String like="%"+(q==null?"":q)+"%";Cursor c=getReadableDatabase().rawQuery("SELECT id,name,whatsapp,phone,cnic,ntn,business,taxType,status,nextDue,email,address,notes FROM clients WHERE name LIKE ? OR business LIKE ? OR whatsapp LIKE ? OR ntn LIKE ? ORDER BY id ASC",new String[]{like,like,like,like});while(c.moveToNext())out.add(fromClient(c));c.close();return out;}
+    public boolean clientExists(String field,String value,long excludeId){
+        if(value==null||value.trim().isEmpty())return false;
+        if(!Arrays.asList("ntn","cnic","whatsapp","phone").contains(field))return false;
+        Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*) FROM clients WHERE "+field+"=? AND id!=?",new String[]{value.trim(),String.valueOf(excludeId)});
+        c.moveToFirst();boolean exists=c.getInt(0)>0;c.close();return exists;
+    }
+    public String duplicateWarning(String ntn,String cnic,String whatsapp,String phone,long excludeId){
+        ArrayList<String> hits=new ArrayList<>();
+        if(clientExists("ntn",ntn,excludeId))hits.add("NTN");
+        if(clientExists("cnic",cnic,excludeId))hits.add("CNIC");
+        if(clientExists("whatsapp",whatsapp,excludeId))hits.add("WhatsApp");
+        if(clientExists("phone",phone,excludeId))hits.add("Phone");
+        return android.text.TextUtils.join(", ",hits);
+    }
     private int scalar(String sql){Cursor c=getReadableDatabase().rawQuery(sql,null);c.moveToFirst();int v=c.getInt(0);c.close();return v;}
     public int countClients(){return scalar("SELECT COUNT(*) FROM clients");}
     public int countPending(){return scalar("SELECT COUNT(*) FROM filings WHERE status='Pending'");}
@@ -147,6 +161,23 @@ public class DBHelper extends SQLiteOpenHelper {
     public double outstandingPayments(){
         Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status!='Paid'",null);
         c.moveToFirst();double v=c.getDouble(0);c.close();return v;
+    }
+    public double clientTotalPayments(long clientId){
+        Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(SUM(amount),0) FROM payments WHERE clientId=?",new String[]{String.valueOf(clientId)});
+        c.moveToFirst();double v=c.getDouble(0);c.close();return v;
+    }
+    public double clientPaidPayments(long clientId){
+        Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(SUM(amount),0) FROM payments WHERE clientId=? AND status='Paid'",new String[]{String.valueOf(clientId)});
+        c.moveToFirst();double v=c.getDouble(0);c.close();return v;
+    }
+    public double clientOutstandingPayments(long clientId){return Math.max(0,clientTotalPayments(clientId)-clientPaidPayments(clientId));}
+    public int countClientPendingFilings(long clientId){
+        Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*) FROM filings WHERE clientId=? AND status='Pending'",new String[]{String.valueOf(clientId)});
+        c.moveToFirst();int v=c.getInt(0);c.close();return v;
+    }
+    public int countClientOpenTasks(long clientId){
+        Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*) FROM tasks WHERE clientId=? AND status!='Completed'",new String[]{String.valueOf(clientId)});
+        c.moveToFirst();int v=c.getInt(0);c.close();return v;
     }
     public int countHighPriorityTasks(){return scalar("SELECT COUNT(*) FROM tasks WHERE status!='Completed' AND priority='High'");}
     public int countRemindersNext7Days(){
@@ -188,6 +219,10 @@ public class DBHelper extends SQLiteOpenHelper {
     public void deleteReminder(long id){Cursor c=getReadableDatabase().rawQuery("SELECT clientId,title FROM reminders WHERE id=?",new String[]{""+id});long cid=0;String title="Reminder";if(c.moveToFirst()){cid=c.getLong(0);title=c.getString(1);}c.close();getWritableDatabase().delete("reminders","id=?",new String[]{""+id});addAudit(cid,"REMINDER_DELETED",title);}
     public void completeReminder(long id){ContentValues v=new ContentValues();v.put("status","Completed");getWritableDatabase().update("reminders",v,"id=?",new String[]{""+id});}
     public void moveReminder(long id,long at){ContentValues v=new ContentValues();v.put("scheduledAt",at);v.put("status","Scheduled");getWritableDatabase().update("reminders",v,"id=?",new String[]{""+id});}
+    public void snoozeReminder(long id,long at){
+        Cursor c=getReadableDatabase().rawQuery("SELECT clientId,title FROM reminders WHERE id=?",new String[]{String.valueOf(id)});long cid=0;String title="Reminder";if(c.moveToFirst()){cid=c.getLong(0);title=c.getString(1);}c.close();
+        moveReminder(id,at);addAudit(cid,"REMINDER_SNOOZED",title);
+    }
 
     public long addPayment(long clientId,String title,double amount,String due,String status,String notes){ContentValues v=new ContentValues();v.put("clientId",clientId);v.put("title",title);v.put("amount",amount);v.put("dueDate",due);v.put("status",status);v.put("notes",notes);long id=getWritableDatabase().insert("payments",null,v);addAudit(clientId,"PAYMENT_CREATED",title+" • PKR "+String.format(Locale.US,"%.0f",amount));return id;}
     public void setPaymentStatus(long id,String status){Cursor c=getReadableDatabase().rawQuery("SELECT clientId,title FROM payments WHERE id=?",new String[]{""+id});long cid=0;String title="Payment";if(c.moveToFirst()){cid=c.getLong(0);title=c.getString(1);}c.close();ContentValues v=new ContentValues();v.put("status",status);getWritableDatabase().update("payments",v,"id=?",new String[]{""+id});addAudit(cid,"PAYMENT_"+status.toUpperCase(Locale.US).replace(" ","_"),title);}
@@ -203,6 +238,10 @@ public class DBHelper extends SQLiteOpenHelper {
     public void setTaskStatus(long id,String status){
         Task t=task(id);ContentValues v=new ContentValues();v.put("status",status);getWritableDatabase().update("tasks",v,"id=?",new String[]{""+id});
         if(t!=null)addAudit(t.clientId,"TASK_"+status.toUpperCase(Locale.US).replace(" ","_"),t.title);
+    }
+    public void deleteTask(long id){
+        Task t=task(id);getWritableDatabase().delete("tasks","id=?",new String[]{String.valueOf(id)});
+        if(t!=null)addAudit(t.clientId,"TASK_DELETED",t.title);
     }
     public Task task(long id){Cursor c=getReadableDatabase().rawQuery("SELECT id,clientId,title,dueDate,priority,status,notes,createdAt FROM tasks WHERE id=?",new String[]{""+id});Task t=null;if(c.moveToFirst())t=fromTask(c);c.close();return t;}
     private Task fromTask(Cursor c){return new Task(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getLong(7));}
