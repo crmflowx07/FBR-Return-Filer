@@ -89,6 +89,15 @@ public class BackupAndReminderTest {
         db.close();
     }
 
+    @Test public void documentAndReceivableIntelligenceWork() {
+        DBHelper db=new DBHelper(context);
+        assertTrue(db.countMissingDocuments()>=0);
+        assertTrue(db.countClientMissingDocuments(1)>=0);
+        assertFalse(db.allPayments().isEmpty());
+        assertFalse(db.allDocuments().isEmpty());
+        db.close();
+    }
+
     @Test public void workloadAnalyticsAreAvailable() {
         DBHelper db=new DBHelper(context);
         assertTrue(db.countOverdueFilings()>=0);
