@@ -451,7 +451,13 @@ public class MainActivity extends Activity {
         r2.addView(metric("Total Revenue","PKR "+String.format(Locale.US,"%,.0f",db.totalPayments()),"Recorded fees",R.drawable.ic_payment,PURPLE,Color.rgb(244,235,255)),new LinearLayout.LayoutParams(0,dp(112),1));
         body.addView(r2);
 
-        LinearLayout qh=new LinearLayout(this);qh.setGravity(Gravity.CENTER_VERTICAL);qh.addView(section("Quick Actions"),new LinearLayout.LayoutParams(0,-2,1));TextView view=tv("View All",11,BLUE,false);qh.addView(view);body.addView(qh);
+        LinearLayout workRow=new LinearLayout(this);
+        workRow.addView(metric("Open Tasks",String.valueOf(db.countPendingTasks()),"Work queue",R.drawable.ic_calendar,ORANGE,Color.rgb(255,243,225)),new LinearLayout.LayoutParams(0,dp(112),1));
+        Space wrGap=new Space(this);workRow.addView(wrGap,new LinearLayout.LayoutParams(dp(10),1));
+        workRow.addView(metric("Audit Events",String.valueOf(db.auditLogs(0).size()),"Recorded actions",R.drawable.ic_grid,BLUE,Color.rgb(232,244,255)),new LinearLayout.LayoutParams(0,dp(112),1));
+        body.addView(workRow);
+
+        LinearLayout qh=new LinearLayout(this);qh.setGravity(Gravity.CENTER_VERTICAL);qh.addView(section("Quick Actions"),new LinearLayout.LayoutParams(0,-2,1));TextView view=tv("Task Center",11,BLUE,true);view.setOnClickListener(v->showTasksHub());qh.addView(view);body.addView(qh);
         LinearLayout quick1=new LinearLayout(this);
         quick1.addView(quick("Add Client",R.drawable.ic_people,()->clientForm(null)),new LinearLayout.LayoutParams(0,dp(86),1));
         Space q1=new Space(this);quick1.addView(q1,new LinearLayout.LayoutParams(dp(8),1));
@@ -491,10 +497,24 @@ public class MainActivity extends Activity {
             body.addView(due);shown++;
         }
 
+        body.addView(section("Today's Work Queue"));
+        List<DBHelper.Task> workTasks=db.tasks(0);
+        int taskShown=0;
+        for(DBHelper.Task t:workTasks){
+            if("Completed".equals(t.status))continue;
+            body.addView(taskCard(t,false));
+            if(++taskShown>=3)break;
+        }
+        if(taskShown==0)body.addView(emptyState("Work queue clear","No pending tax-office tasks."));
+
         body.addView(section("Recent Activity"));
-        body.addView(activityCard("Ahmed Raza","Return documents received","2 min ago",R.drawable.ic_doc,GREEN));
-        body.addView(activityCard("Sana Khan","Income Tax Return marked filed","Today, 11:25 AM",R.drawable.ic_doc,BLUE));
-        body.addView(activityCard("Mubeen Traders","WhatsApp reminder scheduled","Today, 9:40 AM",R.drawable.ic_bell,ORANGE));
+        List<DBHelper.AuditLog> logs=db.auditLogs(0);
+        int logShown=0;
+        for(DBHelper.AuditLog log:logs){
+            body.addView(activityCard(log.client==null?"System":log.client,auditLabel(log.action),relativeTime(log.createdAt),auditIcon(log.action),auditColor(log.action)));
+            if(++logShown>=4)break;
+        }
+        if(logShown==0)body.addView(emptyState("No activity yet","Client actions will appear here automatically."));
     }
 
     private View progressLine(String label,int value,int max,int color){
@@ -679,6 +699,18 @@ public class MainActivity extends Activity {
         Space wsg2=new Space(this);ws2.addView(wsg2,new LinearLayout.LayoutParams(dp(8),1));
         ws2.addView(workspaceTile("Payments",db.payments(id).size()+" entries",R.drawable.ic_payment,GREEN,()->showClientPayments(id)),new LinearLayout.LayoutParams(0,dp(96),1));
         body.addView(ws2);
+        LinearLayout ws3=new LinearLayout(this);
+        ws3.addView(workspaceTile("Tasks",db.tasks(id).size()+" items",R.drawable.ic_calendar,ORANGE,()->showClientTasks(id)),new LinearLayout.LayoutParams(0,dp(96),1));
+        Space wsg3=new Space(this);ws3.addView(wsg3,new LinearLayout.LayoutParams(dp(8),1));
+        ws3.addView(workspaceTile("Activity",db.auditLogs(id).size()+" events",R.drawable.ic_grid,BLUE,()->showAuditTrail(id)),new LinearLayout.LayoutParams(0,dp(96),1));
+        body.addView(ws3);
+
+        body.addView(section("Compliance Health"));
+        int score=clientComplianceScore(id,c);
+        LinearLayout health=card(18);
+        health.addView(progressLine("Client readiness",score,100,score>=80?GREEN:(score>=55?ORANGE:RED)));
+        health.addView(tv(complianceHint(id,c),10,MUTED,false));
+        body.addView(health);
 
         body.addView(section("Filing Timeline"));
         List<DBHelper.Filing> clientFiles=db.filings(id);
@@ -850,6 +882,8 @@ public class MainActivity extends Activity {
         body.addView(menuRow("Payments & Fees",R.drawable.ic_payment,()->showPaymentsHub()));
         body.addView(menuRow("Reports & Compliance",R.drawable.ic_grid,()->showReports()));
         body.addView(menuRow("Action Center",R.drawable.ic_bell,()->showActionCenter()));
+        body.addView(menuRow("Task Manager",R.drawable.ic_calendar,()->showTasksHub()));
+        body.addView(menuRow("Audit Trail",R.drawable.ic_grid,()->showAuditTrail(0)));
         body.addView(section("System"));
         body.addView(menuRow("Backup & Restore",R.drawable.ic_settings,()->showBackupInfo()));
         body.addView(menuRow("App Settings",R.drawable.ic_settings,()->showSettingsInfo()));
@@ -863,6 +897,14 @@ public class MainActivity extends Activity {
         for(DBHelper.Client cl:pending){LinearLayout x=card(16);x.addView(tv(cl.name,13,INK,true));x.addView(tv(safe(cl.taxType)+" • Due "+safe(cl.nextDue),10,MUTED,false));x.setOnClickListener(v->showClient(cl.id));body.addView(x);}
         body.addView(section("Scheduled Reminders"));
         for(DBHelper.Reminder rr:db.reminders(0)){LinearLayout x=card(16);x.addView(tv(rr.title,13,INK,true));x.addView(tv((rr.client==null?"General":rr.client)+" • "+rr.repeat,10,MUTED,false));body.addView(x);}
+        body.addView(section("Priority Tasks"));
+        int n=0;
+        for(DBHelper.Task t:db.tasks(0)){
+            if("Completed".equals(t.status))continue;
+            body.addView(taskCard(t,false));
+            if(++n>=5)break;
+        }
+        if(n==0)body.addView(emptyState("No pending tasks","Your action queue is clear."));
     }
 
     private View menuRow(String title,int icon,Runnable r){
@@ -870,6 +912,132 @@ public class MainActivity extends Activity {
         TextView i=iconCircle(icon);c.addView(i,new LinearLayout.LayoutParams(dp(42),dp(42)));
         TextView t=tv(title,14,INK,true);t.setPadding(dp(12),0,0,0);c.addView(t,new LinearLayout.LayoutParams(0,-2,1));
         TextView go=tv("›",24,MUTED,false);c.addView(go);c.setOnClickListener(v->r.run());return c;
+    }
+
+    private void showTasksHub(){
+        activeNav="more";shell("Task Manager","Tax-office work queue");
+        Button add=actionButton("Add Task",R.drawable.ic_add,true);add.setOnClickListener(v->taskForm(0));body.addView(add,new LinearLayout.LayoutParams(-1,dp(52)));
+        body.addView(spacer(8));
+        List<DBHelper.Task> tasks=db.tasks(0);
+        int pending=0;
+        for(DBHelper.Task t:tasks){
+            if(!"Completed".equals(t.status)){body.addView(taskCard(t,true));pending++;}
+        }
+        if(pending==0)body.addView(emptyState("No pending tasks","Create follow-up, verification or filing preparation tasks."));
+        body.addView(section("Recently Completed"));
+        int done=0;
+        for(DBHelper.Task t:tasks){
+            if("Completed".equals(t.status)){body.addView(taskCard(t,false));if(++done>=5)break;}
+        }
+        if(done==0)body.addView(emptyState("Nothing completed yet","Completed work will be listed here."));
+    }
+
+    private void showClientTasks(long clientId){
+        DBHelper.Client cl=db.client(clientId);activeNav="clients";shell("Client Tasks",cl==null?"Work queue":cl.name);
+        Button add=actionButton("Add Client Task",R.drawable.ic_add,true);add.setOnClickListener(v->taskForm(clientId));body.addView(add,new LinearLayout.LayoutParams(-1,dp(52)));
+        body.addView(spacer(8));
+        List<DBHelper.Task> tasks=db.tasks(clientId);
+        if(tasks.isEmpty())body.addView(emptyState("No client tasks","Add follow-ups, document checks or filing work."));
+        for(DBHelper.Task t:tasks)body.addView(taskCard(t,true));
+    }
+
+    private View taskCard(DBHelper.Task t,boolean allowComplete){
+        LinearLayout x=card(16);
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
+        int pc="High".equals(t.priority)?RED:("Medium".equals(t.priority)?ORANGE:BLUE);
+        TextView priority=tv(t.priority,9,pc,true);priority.setGravity(Gravity.CENTER);priority.setBackground(solid(statusBg("High".equals(t.priority)?"Overdue":"Pending"),12));top.addView(priority,new LinearLayout.LayoutParams(dp(58),dp(26)));
+        TextView title=tv(t.title,13,INK,true);title.setPadding(dp(10),0,0,0);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));x.addView(top);
+        x.addView(iconText("Due "+safe(t.due),R.drawable.ic_calendar,10,MUTED,false));
+        if(t.notes!=null&&!t.notes.trim().isEmpty())x.addView(tv(t.notes,10,MUTED,false));
+        if(allowComplete && !"Completed".equals(t.status)){
+            Button done=actionButton("Mark Completed",R.drawable.ic_doc,false);
+            done.setOnClickListener(v->{db.setTaskStatus(t.id,"Completed");toast("Task completed");if(t.clientId>0)showClientTasks(t.clientId);else showTasksHub();});
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(40));p.setMargins(0,dp(8),0,0);x.addView(done,p);
+        }else if("Completed".equals(t.status)){
+            TextView done=tv("✓ Completed",10,GREEN,true);done.setPadding(0,dp(6),0,0);x.addView(done);
+        }
+        return x;
+    }
+
+    private void taskForm(long presetClientId){
+        LinearLayout f=new LinearLayout(this);f.setOrientation(LinearLayout.VERTICAL);f.setPadding(dp(18),dp(8),dp(18),dp(8));
+        List<DBHelper.Client> clients=db.clients("");
+        ArrayList<String> labels=new ArrayList<>();labels.add("General Office Task");int selected=0;
+        for(int i=0;i<clients.size();i++){DBHelper.Client cl=clients.get(i);labels.add(cl.name);if(cl.id==presetClientId)selected=i+1;}
+        TextView l=tv("Client",11,MUTED,true);f.addView(l);
+        Spinner client=new Spinner(this);client.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels));client.setSelection(selected);f.addView(client,new LinearLayout.LayoutParams(-1,dp(50)));
+        EditText title=field(f,"Task title","Verify return documents");
+        EditText due=field(f,"Due date","Today");
+        Spinner priority=dropdown(f,"Priority",new String[]{"High","Medium","Low"},"Medium");
+        EditText notes=field(f,"Notes","");
+        new AlertDialog.Builder(this).setTitle("Add Task").setView(f).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{
+            if(val(title).isEmpty()){toast("Task title required");return;}
+            long cid=0;int pos=client.getSelectedItemPosition();if(pos>0&&pos-1<clients.size())cid=clients.get(pos-1).id;
+            db.addTask(cid,val(title),val(due),String.valueOf(priority.getSelectedItem()),val(notes));
+            toast("Task added");if(cid>0)showClientTasks(cid);else showTasksHub();
+        }).show();
+    }
+
+    private void showAuditTrail(long clientId){
+        DBHelper.Client cl=clientId>0?db.client(clientId):null;activeNav=clientId>0?"clients":"more";
+        shell("Audit Trail",cl==null?"Complete ERP history":cl.name);
+        List<DBHelper.AuditLog> logs=db.auditLogs(clientId);
+        if(logs.isEmpty()){body.addView(emptyState("No history yet","Important client actions are recorded automatically."));return;}
+        for(DBHelper.AuditLog log:logs){
+            LinearLayout x=card(15);x.setOrientation(LinearLayout.HORIZONTAL);x.setGravity(Gravity.CENTER_VERTICAL);
+            TextView ic=iconCircle(auditIcon(log.action));ic.setBackground(solid(Color.rgb(239,244,251),14));x.addView(ic,new LinearLayout.LayoutParams(dp(42),dp(42)));
+            LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);tx.setPadding(dp(10),0,0,0);
+            tx.addView(tv(auditLabel(log.action),12,INK,true));
+            if(clientId==0)tx.addView(tv(log.client==null?"System":log.client,10,BLUE,true));
+            tx.addView(tv(log.detail,10,MUTED,false));
+            tx.addView(tv(new SimpleDateFormat("dd MMM yyyy, hh:mm a",Locale.US).format(new Date(log.createdAt)),9,MUTED,false));
+            x.addView(tx,new LinearLayout.LayoutParams(0,-2,1));body.addView(x);
+        }
+    }
+
+    private String auditLabel(String action){
+        if(action==null)return "Activity";
+        return action.toLowerCase(Locale.US).replace('_',' ').replace("client ","Client ").replace("task ","Task ");
+    }
+    private int auditIcon(String action){
+        if(action==null)return R.drawable.ic_grid;
+        if(action.contains("TASK"))return R.drawable.ic_calendar;
+        if(action.contains("DOCUMENT")||action.contains("FILING"))return R.drawable.ic_doc;
+        if(action.contains("PAYMENT"))return R.drawable.ic_payment;
+        if(action.contains("REMINDER"))return R.drawable.ic_bell;
+        return R.drawable.ic_people;
+    }
+    private int auditColor(String action){
+        if(action==null)return BLUE;
+        if(action.contains("PAYMENT")||action.contains("COMPLETED"))return GREEN;
+        if(action.contains("DOCUMENT")||action.contains("FILING"))return PURPLE;
+        if(action.contains("REMINDER")||action.contains("TASK"))return ORANGE;
+        return BLUE;
+    }
+    private String relativeTime(long when){
+        long d=Math.max(0,System.currentTimeMillis()-when);
+        if(d<60000)return "Just now";
+        if(d<3600000)return (d/60000)+" min ago";
+        if(d<86400000)return (d/3600000)+" hr ago";
+        return new SimpleDateFormat("dd MMM",Locale.US).format(new Date(when));
+    }
+
+    private int clientComplianceScore(long id,DBHelper.Client cl){
+        int score=25;
+        if(cl.ntn!=null&&!cl.ntn.trim().isEmpty())score+=15;
+        if(cl.cnic!=null&&!cl.cnic.trim().isEmpty())score+=10;
+        if(cl.whatsapp!=null&&!cl.whatsapp.trim().isEmpty())score+=10;
+        if(!db.documents(id).isEmpty())score+=15;
+        for(DBHelper.Filing f:db.filings(id))if("Filed".equals(f.status)){score+=15;break;}
+        boolean pendingTask=false;for(DBHelper.Task t:db.tasks(id))if(!"Completed".equals(t.status)){pendingTask=true;break;}
+        if(!pendingTask)score+=10;
+        return Math.min(100,score);
+    }
+    private String complianceHint(long id,DBHelper.Client cl){
+        int score=clientComplianceScore(id,cl);
+        if(score>=85)return "Strong profile: identity, documents and filing work are well maintained.";
+        if(score>=60)return "Good progress. Complete pending documents/tasks to improve readiness.";
+        return "Needs attention: verify identity, documents, filings and outstanding tasks.";
     }
 
     private void showClientNotes(long id){
@@ -988,7 +1156,7 @@ public class MainActivity extends Activity {
     }
     private void showSettingsInfo(){
         activeNav="more";shell("Settings","FBR Return Filer preferences");
-        body.addView(infoCard("App","FBR Return Filer Pro V12",R.drawable.ic_settings,false));
+        body.addView(infoCard("App","FBR Return Filer Pro V14",R.drawable.ic_settings,false));
         body.addView(infoCard("Storage","Private SQLite + JSON backup",R.drawable.ic_doc,false));
         body.addView(infoCard("Reminder channel","Local notification + WhatsApp",R.drawable.ic_bell,false));
 
