@@ -113,6 +113,27 @@ public class BackupAndReminderTest {
         db.close();
     }
 
+    @Test public void noticesExpensesAndProfitWork() {
+        DBHelper db=new DBHelper(context);
+        assertTrue(db.countOpenNotices()>=1);
+        assertFalse(db.notices(0).isEmpty());
+        assertFalse(db.expenses().isEmpty());
+        assertTrue(db.totalExpenses()>0);
+        double before=db.totalExpenses();
+        long ex=db.addExpense("QA Expense","Testing",1000,"07 Oct 2026","Automated test");
+        assertTrue(ex>0);
+        assertTrue(db.totalExpenses()>=before+1000);
+        db.deleteExpense(ex);
+        long notice=db.addNotice(1,"QA Notice","QA-001","20 Oct 2026","Open","Automated test");
+        assertTrue(notice>0);
+        db.setNoticeStatus(notice,"Resolved");
+        boolean resolved=false;
+        for(DBHelper.Notice n:db.notices(1))if(n.id==notice&&"Resolved".equals(n.status))resolved=true;
+        assertTrue(resolved);
+        db.deleteNotice(notice);
+        db.close();
+    }
+
     @Test public void workloadAnalyticsAreAvailable() {
         DBHelper db=new DBHelper(context);
         assertTrue(db.countOverdueFilings()>=0);
