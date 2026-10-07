@@ -148,6 +148,11 @@ public class DBHelper extends SQLiteOpenHelper {
     public int countFiledClients(){return scalar("SELECT COUNT(*) FROM clients WHERE status='Filed'");}
     public int countPendingClients(){return scalar("SELECT COUNT(*) FROM clients WHERE status='Pending'");}
     public int countDocuments(){return scalar("SELECT COUNT(*) FROM documents");}
+    public int countMissingDocuments(){return scalar("SELECT COUNT(*) FROM documents WHERE status NOT IN ('Received','Verified')");}
+    public int countClientMissingDocuments(long clientId){
+        Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*) FROM documents WHERE clientId=? AND status NOT IN ('Received','Verified')",new String[]{String.valueOf(clientId)});
+        c.moveToFirst();int v=c.getInt(0);c.close();return v;
+    }
     public int countPayments(){return scalar("SELECT COUNT(*) FROM payments");}
     public int countPendingPayments(){return scalar("SELECT COUNT(*) FROM payments WHERE status!='Paid'");}
     public double totalPayments(){
@@ -227,9 +232,21 @@ public class DBHelper extends SQLiteOpenHelper {
     public long addPayment(long clientId,String title,double amount,String due,String status,String notes){ContentValues v=new ContentValues();v.put("clientId",clientId);v.put("title",title);v.put("amount",amount);v.put("dueDate",due);v.put("status",status);v.put("notes",notes);long id=getWritableDatabase().insert("payments",null,v);addAudit(clientId,"PAYMENT_CREATED",title+" • PKR "+String.format(Locale.US,"%.0f",amount));return id;}
     public void setPaymentStatus(long id,String status){Cursor c=getReadableDatabase().rawQuery("SELECT clientId,title FROM payments WHERE id=?",new String[]{""+id});long cid=0;String title="Payment";if(c.moveToFirst()){cid=c.getLong(0);title=c.getString(1);}c.close();ContentValues v=new ContentValues();v.put("status",status);getWritableDatabase().update("payments",v,"id=?",new String[]{""+id});addAudit(cid,"PAYMENT_"+status.toUpperCase(Locale.US).replace(" ","_"),title);}
     public List<Payment> payments(long clientId){ArrayList<Payment> l=new ArrayList<>();Cursor c=getReadableDatabase().rawQuery("SELECT id,title,amount,dueDate,status,notes FROM payments WHERE clientId=? ORDER BY id DESC",new String[]{""+clientId});while(c.moveToNext())l.add(new Payment(c.getLong(0),c.getString(1),c.getDouble(2),c.getString(3),c.getString(4),c.getString(5)));c.close();return l;}
+    public List<PaymentRow> allPayments(){
+        ArrayList<PaymentRow> out=new ArrayList<>();
+        Cursor c=getReadableDatabase().rawQuery("SELECT p.id,p.clientId,c.name,p.title,p.amount,p.dueDate,p.status,p.notes FROM payments p LEFT JOIN clients c ON c.id=p.clientId ORDER BY p.id DESC",null);
+        while(c.moveToNext())out.add(new PaymentRow(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getDouble(4),c.getString(5),c.getString(6),c.getString(7)));
+        c.close();return out;
+    }
     public long addDocument(long clientId,String title,String category,String status,String notes){ContentValues v=new ContentValues();v.put("clientId",clientId);v.put("title",title);v.put("category",category);v.put("status",status);v.put("notes",notes);long id=getWritableDatabase().insert("documents",null,v);addAudit(clientId,"DOCUMENT_CREATED",title+" • "+status);return id;}
     public void setDocumentStatus(long id,String status){Cursor c=getReadableDatabase().rawQuery("SELECT clientId,title FROM documents WHERE id=?",new String[]{""+id});long cid=0;String title="Document";if(c.moveToFirst()){cid=c.getLong(0);title=c.getString(1);}c.close();ContentValues v=new ContentValues();v.put("status",status);getWritableDatabase().update("documents",v,"id=?",new String[]{""+id});addAudit(cid,"DOCUMENT_"+status.toUpperCase(Locale.US).replace(" ","_"),title);}
     public List<Document> documents(long clientId){ArrayList<Document> l=new ArrayList<>();Cursor c=getReadableDatabase().rawQuery("SELECT id,title,category,status,notes FROM documents WHERE clientId=? ORDER BY id DESC",new String[]{""+clientId});while(c.moveToNext())l.add(new Document(c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4)));c.close();return l;}
+    public List<DocumentRow> allDocuments(){
+        ArrayList<DocumentRow> out=new ArrayList<>();
+        Cursor c=getReadableDatabase().rawQuery("SELECT d.id,d.clientId,c.name,d.title,d.category,d.status,d.notes FROM documents d LEFT JOIN clients c ON c.id=d.clientId ORDER BY d.id DESC",null);
+        while(c.moveToNext())out.add(new DocumentRow(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6)));
+        c.close();return out;
+    }
 
     public long addTask(long clientId,String title,String due,String priority,String notes){
         ContentValues v=new ContentValues();v.put("clientId",clientId);v.put("title",title);v.put("dueDate",due);v.put("priority",priority);v.put("status","Pending");v.put("notes",notes);v.put("createdAt",System.currentTimeMillis());
@@ -323,6 +340,15 @@ public class DBHelper extends SQLiteOpenHelper {
             }
             db.insertOrThrow(table,null,v);
         }
+    }
+
+    public static class PaymentRow{
+        public final long id,clientId;public final String client,title,due,status,notes;public final double amount;
+        public PaymentRow(long id,long clientId,String client,String title,double amount,String due,String status,String notes){this.id=id;this.clientId=clientId;this.client=client;this.title=title;this.amount=amount;this.due=due;this.status=status;this.notes=notes;}
+    }
+    public static class DocumentRow{
+        public final long id,clientId;public final String client,title,category,status,notes;
+        public DocumentRow(long id,long clientId,String client,String title,String category,String status,String notes){this.id=id;this.clientId=clientId;this.client=client;this.title=title;this.category=category;this.status=status;this.notes=notes;}
     }
 
     public static class FilingRow{
