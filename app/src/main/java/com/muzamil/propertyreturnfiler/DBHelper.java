@@ -4,6 +4,7 @@ import android.content.*;
 import android.database.Cursor;
 import android.database.sqlite.*;
 import java.util.*;
+import java.text.*;
 import org.json.*;
 
 public class DBHelper extends SQLiteOpenHelper {
@@ -143,6 +144,25 @@ public class DBHelper extends SQLiteOpenHelper {
         Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='Paid'",null);
         c.moveToFirst();double v=c.getDouble(0);c.close();return v;
     }
+    public double outstandingPayments(){
+        Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status!='Paid'",null);
+        c.moveToFirst();double v=c.getDouble(0);c.close();return v;
+    }
+    public int countHighPriorityTasks(){return scalar("SELECT COUNT(*) FROM tasks WHERE status!='Completed' AND priority='High'");}
+    public int countRemindersNext7Days(){
+        long now=System.currentTimeMillis(), end=now+7L*24*60*60*1000;
+        Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*) FROM reminders WHERE status='Scheduled' AND scheduledAt>=? AND scheduledAt<=?",new String[]{String.valueOf(now),String.valueOf(end)});
+        c.moveToFirst();int v=c.getInt(0);c.close();return v;
+    }
+    public int countOverdueFilings(){
+        int n=0;Date today=new Date();
+        Cursor c=getReadableDatabase().rawQuery("SELECT dueDate FROM filings WHERE status='Pending'",null);
+        SimpleDateFormat f=new SimpleDateFormat("dd MMM yyyy",Locale.US);f.setLenient(false);
+        while(c.moveToNext()){
+            try{String s=c.getString(0);if(s!=null && f.parse(s).before(today))n++;}catch(Exception ignored){}
+        }
+        c.close();return n;
+    }
     public List<Client> clientsByStatus(String status){
         ArrayList<Client> out=new ArrayList<>();
         Cursor c=getReadableDatabase().rawQuery("SELECT id,name,whatsapp,phone,cnic,ntn,business,taxType,status,nextDue,email,address,notes FROM clients WHERE status=? ORDER BY id ASC",new String[]{status});
@@ -152,6 +172,16 @@ public class DBHelper extends SQLiteOpenHelper {
     public long addFiling(long clientId,String month,int year,String type,String due,String status,String notes){ContentValues v=new ContentValues();v.put("clientId",clientId);v.put("month",month);v.put("year",year);v.put("type",type);v.put("dueDate",due);v.put("status",status);v.put("notes",notes);long id=getWritableDatabase().insert("filings",null,v);addAudit(clientId,"FILING_CREATED",month+" "+year+" • "+type);return id;}
     public void setFilingStatus(long id,String status){Cursor c=getReadableDatabase().rawQuery("SELECT clientId,month,year FROM filings WHERE id=?",new String[]{""+id});long cid=0;String label="Filing";if(c.moveToFirst()){cid=c.getLong(0);label=c.getString(1)+" "+c.getInt(2);}c.close();ContentValues v=new ContentValues();v.put("status",status);if("Filed".equals(status)||"Completed".equals(status))v.put("filedDate",new java.text.SimpleDateFormat("dd MMM yyyy",Locale.US).format(new Date()));getWritableDatabase().update("filings",v,"id=?",new String[]{""+id});addAudit(cid,"FILING_"+status.toUpperCase(Locale.US),label);}
     public List<Filing> filings(long clientId){ArrayList<Filing> l=new ArrayList<>();Cursor c=getReadableDatabase().rawQuery("SELECT id,month,year,type,dueDate,status,filedDate,notes FROM filings WHERE clientId=? ORDER BY year DESC,id DESC",new String[]{""+clientId});while(c.moveToNext())l.add(new Filing(c.getLong(0),c.getString(1),c.getInt(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getString(7)));c.close();return l;}
+    public List<FilingRow> allFilings(){
+        ArrayList<FilingRow> out=new ArrayList<>();
+        Cursor c=getReadableDatabase().rawQuery("SELECT f.id,f.clientId,c.name,f.month,f.year,f.type,f.dueDate,f.status,f.filedDate,f.notes FROM filings f LEFT JOIN clients c ON c.id=f.clientId ORDER BY f.year DESC,f.id DESC",null);
+        while(c.moveToNext())out.add(new FilingRow(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getInt(4),c.getString(5),c.getString(6),c.getString(7),c.getString(8),c.getString(9)));
+        c.close();return out;
+    }
+    public boolean isOverdue(String due,String status){
+        if(!"Pending".equals(status) || due==null)return false;
+        try{SimpleDateFormat f=new SimpleDateFormat("dd MMM yyyy",Locale.US);f.setLenient(false);return f.parse(due).before(new Date());}catch(Exception e){return false;}
+    }
 
     public long addReminder(long clientId,String title,String message,long at,String repeat,String channel){ContentValues v=new ContentValues();v.put("clientId",clientId);v.put("title",title);v.put("message",message);v.put("scheduledAt",at);v.put("repeatRule",repeat);v.put("status","Scheduled");v.put("channel",channel);long id=getWritableDatabase().insert("reminders",null,v);addAudit(clientId,"REMINDER_CREATED",title+" • "+repeat);return id;}
     public List<Reminder> reminders(long clientId){ArrayList<Reminder> l=new ArrayList<>();String where=clientId>0?" WHERE r.clientId="+clientId:"";Cursor c=getReadableDatabase().rawQuery("SELECT r.id,r.clientId,c.name,r.title,r.message,r.scheduledAt,r.repeatRule,r.status,r.channel FROM reminders r LEFT JOIN clients c ON c.id=r.clientId"+where+" ORDER BY r.scheduledAt ASC",null);while(c.moveToNext())l.add(new Reminder(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getLong(5),c.getString(6),c.getString(7),c.getString(8)));c.close();return l;}
@@ -254,6 +284,11 @@ public class DBHelper extends SQLiteOpenHelper {
             }
             db.insertOrThrow(table,null,v);
         }
+    }
+
+    public static class FilingRow{
+        public final long id,clientId;public final String client,month,type,due,status,filedDate,notes;public final int year;
+        public FilingRow(long id,long clientId,String client,String month,int year,String type,String due,String status,String filedDate,String notes){this.id=id;this.clientId=clientId;this.client=client;this.month=month;this.year=year;this.type=type;this.due=due;this.status=status;this.filedDate=filedDate;this.notes=notes;}
     }
 
     public static class Task{
