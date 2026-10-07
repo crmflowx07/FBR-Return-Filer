@@ -8,7 +8,7 @@ import java.text.*;
 import org.json.*;
 
 public class DBHelper extends SQLiteOpenHelper {
-    public static final int VERSION = 6;
+    public static final int VERSION = 7;
     public DBHelper(Context c){ super(c,"property_return_filer.db",null,VERSION); }
 
     @Override public void onCreate(SQLiteDatabase db){
@@ -19,6 +19,8 @@ public class DBHelper extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE documents(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,category TEXT,status TEXT,notes TEXT)");
         db.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,dueDate TEXT,priority TEXT,status TEXT,notes TEXT,createdAt INTEGER)");
         db.execSQL("CREATE TABLE audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,action TEXT,detail TEXT,createdAt INTEGER)");
+        db.execSQL("CREATE TABLE notices(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,referenceNo TEXT,dueDate TEXT,status TEXT,notes TEXT,createdAt INTEGER)");
+        db.execSQL("CREATE TABLE expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,category TEXT,amount REAL,date TEXT,notes TEXT,createdAt INTEGER)");
         seedExactDemo(db);
     }
 
@@ -32,6 +34,10 @@ public class DBHelper extends SQLiteOpenHelper {
         if(oldV<6){
             db.execSQL("CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,dueDate TEXT,priority TEXT,status TEXT,notes TEXT,createdAt INTEGER)");
             db.execSQL("CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,action TEXT,detail TEXT,createdAt INTEGER)");
+        }
+        if(oldV<7){
+            db.execSQL("CREATE TABLE IF NOT EXISTS notices(id INTEGER PRIMARY KEY AUTOINCREMENT,clientId INTEGER,title TEXT,referenceNo TEXT,dueDate TEXT,status TEXT,notes TEXT,createdAt INTEGER)");
+            db.execSQL("CREATE TABLE IF NOT EXISTS expenses(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT,category TEXT,amount REAL,date TEXT,notes TEXT,createdAt INTEGER)");
         }
     }
 
@@ -106,6 +112,9 @@ public class DBHelper extends SQLiteOpenHelper {
         audit(db,ids[0],"CLIENT_CREATED","Ahmed Raza profile initialized");
         audit(db,ids[0],"DOCUMENT_RECEIVED","Bank Statement received");
         audit(db,ids[0],"PAYMENT_RECORDED","Monthly Consultancy PKR 25,000");
+
+        ContentValues n=new ContentValues();n.put("clientId",ids[2]);n.put("title","FBR Information Notice");n.put("referenceNo","FBR-NTC-2026-001");n.put("dueDate","20 Oct 2026");n.put("status","Open");n.put("notes","Prepare response with supporting records.");n.put("createdAt",System.currentTimeMillis());db.insert("notices",null,n);
+        ContentValues e=new ContentValues();e.put("title","Office Internet");e.put("category","Utilities");e.put("amount",6500);e.put("date","01 Oct 2026");e.put("notes","Monthly broadband expense");e.put("createdAt",System.currentTimeMillis());db.insert("expenses",null,e);
     }
 
     private void task(SQLiteDatabase db,long cid,String title,String due,String priority,String status,String notes){
@@ -120,7 +129,7 @@ public class DBHelper extends SQLiteOpenHelper {
         if(id>0){getWritableDatabase().update("clients",v,"id=?",new String[]{String.valueOf(id)});addAudit(id,"CLIENT_UPDATED","Client profile updated");return id;}
         v.put("createdAt",System.currentTimeMillis());long created=getWritableDatabase().insert("clients",null,v);addAudit(created,"CLIENT_CREATED","New client added");return created;
     }
-    public void deleteClient(long id){SQLiteDatabase d=getWritableDatabase();String[] a={""+id};d.delete("filings","clientId=?",a);d.delete("reminders","clientId=?",a);d.delete("payments","clientId=?",a);d.delete("documents","clientId=?",a);d.delete("tasks","clientId=?",a);d.delete("audit_logs","clientId=?",a);d.delete("clients","id=?",a);}
+    public void deleteClient(long id){SQLiteDatabase d=getWritableDatabase();String[] a={""+id};d.delete("filings","clientId=?",a);d.delete("reminders","clientId=?",a);d.delete("payments","clientId=?",a);d.delete("documents","clientId=?",a);d.delete("tasks","clientId=?",a);d.delete("audit_logs","clientId=?",a);d.delete("notices","clientId=?",a);d.delete("clients","id=?",a);}
 
     public Client client(long id){Cursor c=getReadableDatabase().rawQuery("SELECT id,name,whatsapp,phone,cnic,ntn,business,taxType,status,nextDue,email,address,notes FROM clients WHERE id=?",new String[]{""+id});Client x=null;if(c.moveToFirst())x=fromClient(c);c.close();return x;}
     private Client fromClient(Cursor c){return new Client(c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getString(7),c.getString(8),c.getString(9),c.getString(10),c.getString(11),c.getString(12));}
@@ -309,12 +318,42 @@ public class DBHelper extends SQLiteOpenHelper {
         ArrayList<AuditLog> out=new ArrayList<>();String where=clientId>0?" WHERE a.clientId="+clientId:"";Cursor c=getReadableDatabase().rawQuery("SELECT a.id,a.clientId,c.name,a.action,a.detail,a.createdAt FROM audit_logs a LEFT JOIN clients c ON c.id=a.clientId"+where+" ORDER BY a.createdAt DESC,a.id DESC",null);while(c.moveToNext())out.add(new AuditLog(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getLong(5)));c.close();return out;
     }
 
+    public long addNotice(long clientId,String title,String ref,String due,String status,String notes){
+        ContentValues v=new ContentValues();v.put("clientId",clientId);v.put("title",title);v.put("referenceNo",ref);v.put("dueDate",due);v.put("status",status);v.put("notes",notes);v.put("createdAt",System.currentTimeMillis());
+        long id=getWritableDatabase().insert("notices",null,v);addAudit(clientId,"NOTICE_CREATED",title+" • "+ref);return id;
+    }
+    public void setNoticeStatus(long id,String status){
+        Cursor c=getReadableDatabase().rawQuery("SELECT clientId,title FROM notices WHERE id=?",new String[]{String.valueOf(id)});long cid=0;String title="Notice";if(c.moveToFirst()){cid=c.getLong(0);title=c.getString(1);}c.close();
+        ContentValues v=new ContentValues();v.put("status",status);getWritableDatabase().update("notices",v,"id=?",new String[]{String.valueOf(id)});addAudit(cid,"NOTICE_"+status.toUpperCase(Locale.US).replace(" ","_"),title);
+    }
+    public void deleteNotice(long id){
+        Cursor c=getReadableDatabase().rawQuery("SELECT clientId,title FROM notices WHERE id=?",new String[]{String.valueOf(id)});long cid=0;String title="Notice";if(c.moveToFirst()){cid=c.getLong(0);title=c.getString(1);}c.close();
+        getWritableDatabase().delete("notices","id=?",new String[]{String.valueOf(id)});addAudit(cid,"NOTICE_DELETED",title);
+    }
+    public List<Notice> notices(long clientId){
+        ArrayList<Notice> out=new ArrayList<>();String where=clientId>0?" WHERE n.clientId="+clientId:"";
+        Cursor c=getReadableDatabase().rawQuery("SELECT n.id,n.clientId,c.name,n.title,n.referenceNo,n.dueDate,n.status,n.notes,n.createdAt FROM notices n LEFT JOIN clients c ON c.id=n.clientId"+where+" ORDER BY n.id DESC",null);
+        while(c.moveToNext())out.add(new Notice(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getString(7),c.getLong(8)));c.close();return out;
+    }
+    public int countOpenNotices(){return scalar("SELECT COUNT(*) FROM notices WHERE status!='Closed' AND status!='Resolved'");}
+
+    public long addExpense(String title,String category,double amount,String date,String notes){
+        ContentValues v=new ContentValues();v.put("title",title);v.put("category",category);v.put("amount",amount);v.put("date",date);v.put("notes",notes);v.put("createdAt",System.currentTimeMillis());long id=getWritableDatabase().insert("expenses",null,v);addAudit(0,"EXPENSE_CREATED",title+" • PKR "+String.format(Locale.US,"%.0f",amount));return id;
+    }
+    public void deleteExpense(long id){getWritableDatabase().delete("expenses","id=?",new String[]{String.valueOf(id)});addAudit(0,"EXPENSE_DELETED","Expense #"+id);}
+    public List<Expense> expenses(){
+        ArrayList<Expense> out=new ArrayList<>();Cursor c=getReadableDatabase().rawQuery("SELECT id,title,category,amount,date,notes,createdAt FROM expenses ORDER BY id DESC",null);
+        while(c.moveToNext())out.add(new Expense(c.getLong(0),c.getString(1),c.getString(2),c.getDouble(3),c.getString(4),c.getString(5),c.getLong(6)));c.close();return out;
+    }
+    public double totalExpenses(){Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(SUM(amount),0) FROM expenses",null);c.moveToFirst();double v=c.getDouble(0);c.close();return v;}
+    public double netProfit(){return paidPayments()-totalExpenses();}
+
     public String exportJson() throws JSONException {
         JSONObject root=new JSONObject();
         root.put("format","FBR_RETURN_FILER_BACKUP");
         root.put("version",1);
         root.put("exportedAt",System.currentTimeMillis());
-        String[] tables={"clients","filings","reminders","payments","documents","tasks","audit_logs"};
+        String[] tables={"clients","filings","reminders","payments","documents","tasks","audit_logs","notices","expenses"};
         SQLiteDatabase db=getReadableDatabase();
         for(String table:tables){
             JSONArray arr=new JSONArray();
@@ -348,6 +387,8 @@ public class DBHelper extends SQLiteOpenHelper {
             db.delete("reminders",null,null);
             db.delete("filings",null,null);
             db.delete("tasks",null,null);
+            db.delete("notices",null,null);
+            db.delete("expenses",null,null);
             db.delete("audit_logs",null,null);
             db.delete("clients",null,null);
             importTable(db,root.optJSONArray("clients"),"clients");
@@ -357,6 +398,8 @@ public class DBHelper extends SQLiteOpenHelper {
             importTable(db,root.optJSONArray("documents"),"documents");
             importTable(db,root.optJSONArray("tasks"),"tasks");
             importTable(db,root.optJSONArray("audit_logs"),"audit_logs");
+            importTable(db,root.optJSONArray("notices"),"notices");
+            importTable(db,root.optJSONArray("expenses"),"expenses");
             db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
     }
@@ -377,6 +420,15 @@ public class DBHelper extends SQLiteOpenHelper {
             }
             db.insertOrThrow(table,null,v);
         }
+    }
+
+    public static class Notice{
+        public final long id,clientId,createdAt;public final String client,title,referenceNo,due,status,notes;
+        public Notice(long id,long clientId,String client,String title,String referenceNo,String due,String status,String notes,long createdAt){this.id=id;this.clientId=clientId;this.client=client;this.title=title;this.referenceNo=referenceNo;this.due=due;this.status=status;this.notes=notes;this.createdAt=createdAt;}
+    }
+    public static class Expense{
+        public final long id,createdAt;public final String title,category,date,notes;public final double amount;
+        public Expense(long id,String title,String category,double amount,String date,String notes,long createdAt){this.id=id;this.title=title;this.category=category;this.amount=amount;this.date=date;this.notes=notes;this.createdAt=createdAt;}
     }
 
     public static class PaymentRow{
