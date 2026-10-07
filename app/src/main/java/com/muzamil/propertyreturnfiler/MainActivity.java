@@ -360,14 +360,15 @@ public class MainActivity extends Activity {
             showDashboard();
         } catch (Throwable first) {
             Log.e("FBRReturnFiler","Dashboard first open failed",first);
+            lastDashboardError=Log.getStackTraceString(first);
             try {
                 db.close();
-                deleteDatabase("property_return_filer.db");
                 db = new DBHelper(this);
-                db.getWritableDatabase();
+                db.getReadableDatabase();
                 showDashboard();
             } catch (Throwable second) {
                 Log.e("FBRReturnFiler","Dashboard recovery failed",second);
+                lastDashboardError=Log.getStackTraceString(second);
                 dashboardOpened = false;
                 showRecoveryScreen();
             }
@@ -387,11 +388,11 @@ public class MainActivity extends Activity {
         TextView h=tv("App data refresh required",20,INK,true);
         h.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);hp.setMargins(0,dp(18),0,dp(8));box.addView(h,hp);
-        TextView p=tv("Retry press karein. App local database ko fresh initialize karegi.",13,MUTED,false);
+        TextView p=tv("Retry press karein. App aap ka existing local data delete kiye baghair database dobara open karegi.",13,MUTED,false);
         p.setGravity(Gravity.CENTER);p.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);box.addView(p);
         Button retry=actionButton("Retry",R.drawable.ic_home,true);
         retry.setOnClickListener(v->{
-            try{ deleteDatabase("property_return_filer.db"); db=new DBHelper(this); db.getWritableDatabase(); showDashboard(); }
+            try{ if(db!=null)db.close(); db=new DBHelper(this); db.getWritableDatabase(); dashboardOpened=true; showDashboard(); }
             catch(Throwable e){ toast("Initialization failed"); }
         });
         LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(54));rp.setMargins(0,dp(22),0,0);box.addView(retry,rp);
@@ -411,7 +412,7 @@ public class MainActivity extends Activity {
         TextView av=avatar("Muzamil Abbas",46);
         user.addView(av,new LinearLayout.LayoutParams(dp(46),dp(46)));
         LinearLayout ut=new LinearLayout(this);ut.setOrientation(LinearLayout.VERTICAL);ut.setPadding(dp(10),0,0,0);
-        ut.addView(tv("Good Morning",11,MUTED,false));
+        ut.addView(tv(dynamicGreeting(),11,MUTED,false));
         ut.addView(tv("Muzamil Abbas",17,INK,true));
         ut.addView(tv("Tax Consultant",10,MUTED,false));
         user.addView(ut,new LinearLayout.LayoutParams(0,-2,1));
@@ -435,8 +436,8 @@ public class MainActivity extends Activity {
         LinearLayout hl=new LinearLayout(this);hl.setOrientation(LinearLayout.VERTICAL);
         hl.addView(tv("Total Clients",14,Color.WHITE,false));
         LinearLayout number=new LinearLayout(this);number.setGravity(Gravity.CENTER_VERTICAL);
-        number.addView(tv(String.valueOf(Math.max(db.countClients(),48)),34,Color.WHITE,true));
-        TextView up=tv("  ↑ 12%  ",11,Color.WHITE,true);up.setGravity(Gravity.CENTER);up.setBackground(solid(Color.rgb(44,184,197),16));
+        number.addView(tv(String.valueOf(db.countClients()),34,Color.WHITE,true));
+        TextView up=tv("  "+db.countActiveClients()+" active  ",11,Color.WHITE,true);up.setGravity(Gravity.CENTER);up.setBackground(solid(Color.rgb(44,184,197),16));
         LinearLayout.LayoutParams upp=new LinearLayout.LayoutParams(-2,dp(28));upp.setMargins(dp(10),0,0,0);number.addView(up,upp);
         hl.addView(number);hl.addView(tv("Active clients in your portfolio",11,0xFFE8F4FF,false));
         hr.addView(hl,new LinearLayout.LayoutParams(0,-2,1));
@@ -702,6 +703,22 @@ public class MainActivity extends Activity {
         body.addView(infoCard("Next Due Date",safe(c.nextDue),R.drawable.ic_calendar,false));
         body.addView(infoCard("Notes",safe(c.notes),R.drawable.ic_doc,false));
 
+        body.addView(section("Client Snapshot"));
+        LinearLayout snapshot=card(18);
+        snapshot.addView(infoLineReport("Pending filings",String.valueOf(db.countClientPendingFilings(id)),db.countClientPendingFilings(id)>0?ORANGE:GREEN));
+        snapshot.addView(infoLineReport("Open tasks",String.valueOf(db.countClientOpenTasks(id)),db.countClientOpenTasks(id)>0?ORANGE:GREEN));
+        snapshot.addView(infoLineReport("Total fees","PKR "+String.format(Locale.US,"%,.0f",db.clientTotalPayments(id)),BLUE));
+        snapshot.addView(infoLineReport("Outstanding fees","PKR "+String.format(Locale.US,"%,.0f",db.clientOutstandingPayments(id)),db.clientOutstandingPayments(id)>0?RED:GREEN));
+        body.addView(snapshot);
+
+        LinearLayout contactActions=new LinearLayout(this);
+        Button call=actionButton("Call",R.drawable.ic_phone,false);call.setOnClickListener(v->openCall(c));contactActions.addView(call,new LinearLayout.LayoutParams(0,dp(48),1));
+        Space cg1=new Space(this);contactActions.addView(cg1,new LinearLayout.LayoutParams(dp(8),1));
+        Button email=actionButton("Email",R.drawable.ic_mail,false);email.setOnClickListener(v->openEmail(c));contactActions.addView(email,new LinearLayout.LayoutParams(0,dp(48),1));
+        Space cg2=new Space(this);contactActions.addView(cg2,new LinearLayout.LayoutParams(dp(8),1));
+        Button share=actionButton("Share",R.drawable.ic_doc,false);share.setOnClickListener(v->shareClientSummary(c));contactActions.addView(share,new LinearLayout.LayoutParams(0,dp(48),1));
+        body.addView(contactActions);
+
         body.addView(section("Client Workspace"));
         LinearLayout ws1=new LinearLayout(this);
         ws1.addView(workspaceTile("Filings",db.filings(id).size()+" records",R.drawable.ic_doc,BLUE,()->showClientFilings(id)),new LinearLayout.LayoutParams(0,dp(96),1));
@@ -789,8 +806,11 @@ public class MainActivity extends Activity {
             tx.addView(tv((rr.client==null||rr.client.trim().isEmpty()?"General":rr.client)+" • "+rr.repeat,10,MUTED,false));
             tx.addView(tv(new SimpleDateFormat("dd MMM yyyy, hh:mm a",Locale.US).format(new Date(rr.at)),10,BLUE,true));
             row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));
-            TextView del=tv("Delete",10,RED,true);del.setGravity(Gravity.CENTER);del.setOnClickListener(v->{ReminderScheduler.cancel(this,rr.id);db.deleteReminder(rr.id);showReminders();});
-            row.addView(del,new LinearLayout.LayoutParams(dp(54),dp(36)));
+            LinearLayout rc=new LinearLayout(this);rc.setOrientation(LinearLayout.VERTICAL);rc.setGravity(Gravity.CENTER);
+            TextView snooze=tv("Snooze",9,BLUE,true);snooze.setGravity(Gravity.CENTER);snooze.setOnClickListener(v->{long at=System.currentTimeMillis()+24L*60*60*1000;db.snoozeReminder(rr.id,at);ReminderScheduler.schedule(this,rr.id,rr.title,rr.message,at,rr.repeat);showReminders();});
+            TextView del=tv("Delete",9,RED,true);del.setGravity(Gravity.CENTER);del.setOnClickListener(v->{ReminderScheduler.cancel(this,rr.id);db.deleteReminder(rr.id);showReminders();});
+            rc.addView(snooze,new LinearLayout.LayoutParams(dp(62),dp(26)));rc.addView(del,new LinearLayout.LayoutParams(dp(62),dp(26)));
+            row.addView(rc,new LinearLayout.LayoutParams(dp(66),dp(54)));
             x.addView(row);body.addView(x);
         }
         if(!any)body.addView(emptyState("No scheduled reminders","Create a client or general follow-up reminder."));
@@ -1002,10 +1022,22 @@ public class MainActivity extends Activity {
         TextView title=tv(t.title,13,INK,true);title.setPadding(dp(10),0,0,0);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));x.addView(top);
         x.addView(iconText("Due "+safe(t.due),R.drawable.ic_calendar,10,MUTED,false));
         if(t.notes!=null&&!t.notes.trim().isEmpty())x.addView(tv(t.notes,10,MUTED,false));
-        if(allowComplete && !"Completed".equals(t.status)){
-            Button done=actionButton("Mark Completed",R.drawable.ic_doc,false);
-            done.setOnClickListener(v->{db.setTaskStatus(t.id,"Completed");toast("Task completed");if(t.clientId>0)showClientTasks(t.clientId);else showTasksHub();});
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(40));p.setMargins(0,dp(8),0,0);x.addView(done,p);
+        if(allowComplete){
+            LinearLayout controls=new LinearLayout(this);
+            if(!"Completed".equals(t.status)){
+                Button done=actionButton("Complete",R.drawable.ic_doc,false);
+                done.setOnClickListener(v->{db.setTaskStatus(t.id,"Completed");toast("Task completed");if(t.clientId>0)showClientTasks(t.clientId);else showTasksHub();});
+                controls.addView(done,new LinearLayout.LayoutParams(0,dp(40),1));
+            }else{
+                Button reopen=actionButton("Reopen",R.drawable.ic_calendar,false);
+                reopen.setOnClickListener(v->{db.setTaskStatus(t.id,"Pending");if(t.clientId>0)showClientTasks(t.clientId);else showTasksHub();});
+                controls.addView(reopen,new LinearLayout.LayoutParams(0,dp(40),1));
+            }
+            Space ctg=new Space(this);controls.addView(ctg,new LinearLayout.LayoutParams(dp(8),1));
+            Button del=actionButton("Delete",R.drawable.ic_more,false);del.setTextColor(RED);
+            del.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Delete task?").setMessage(t.title).setNegativeButton("Cancel",null).setPositiveButton("Delete",(d,w)->{db.deleteTask(t.id);if(t.clientId>0)showClientTasks(t.clientId);else showTasksHub();}).show());
+            controls.addView(del,new LinearLayout.LayoutParams(0,dp(40),1));
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(40));cp.setMargins(0,dp(8),0,0);x.addView(controls,cp);
         }else if("Completed".equals(t.status)){
             TextView done=tv("✓ Completed",10,GREEN,true);done.setPadding(0,dp(6),0,0);x.addView(done);
         }
@@ -1232,7 +1264,7 @@ public class MainActivity extends Activity {
     }
     private void showSettingsInfo(){
         activeNav="more";shell("Settings","FBR Return Filer preferences");
-        body.addView(infoCard("App","FBR Return Filer Pro V15",R.drawable.ic_settings,false));
+        body.addView(infoCard("App","FBR Return Filer Pro V16",R.drawable.ic_settings,false));
         body.addView(infoCard("Storage","Private SQLite + JSON backup",R.drawable.ic_doc,false));
         body.addView(infoCard("Reminder channel","Local notification + WhatsApp",R.drawable.ic_bell,false));
 
@@ -1275,8 +1307,15 @@ public class MainActivity extends Activity {
         EditText notes=field(f,"Notes",edit?c.notes:"");
         new AlertDialog.Builder(this).setTitle(edit?"Edit Client":"Add New Client").setView(sv).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{
             if(val(name).isEmpty()){toast("Client name required");return;}
-            long id=db.saveClient(edit?c.id:0,val(name),val(wa),val(phone),val(cnic),val(ntn),val(business),String.valueOf(type.getSelectedItem()),String.valueOf(status.getSelectedItem()),val(due),val(email),val(address),val(notes));
-            showClient(id);
+            long existingId=edit?c.id:0;
+            String dup=db.duplicateWarning(val(ntn),val(cnic),val(wa),val(phone),existingId);
+            Runnable saveAction=()->{
+                long id=db.saveClient(existingId,val(name),val(wa),val(phone),val(cnic),val(ntn),val(business),String.valueOf(type.getSelectedItem()),String.valueOf(status.getSelectedItem()),val(due),val(email),val(address),val(notes));
+                showClient(id);
+            };
+            if(!dup.isEmpty()){
+                new AlertDialog.Builder(this).setTitle("Possible duplicate client").setMessage("Matching "+dup+" already exists. Save anyway?").setNegativeButton("Cancel",null).setPositiveButton("Save Anyway",(dd,ww)->saveAction.run()).show();
+            }else saveAction.run();
         }).show();
     }
 
@@ -1351,6 +1390,31 @@ public class MainActivity extends Activity {
         long rid=db.addReminder(0,title,msg,at,"Once","Local");
         ReminderScheduler.schedule(this,rid,title,msg,at,"Once");
         toast("Reminder scheduled");
+    }
+
+    private String dynamicGreeting(){
+        int h=Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        if(h<12)return "Good Morning";
+        if(h<17)return "Good Afternoon";
+        return "Good Evening";
+    }
+
+    private void openCall(DBHelper.Client c){
+        String no=safe(c.phone).replaceAll("[^0-9+]","");
+        if(no.equals("—")||no.isEmpty()){toast("Phone number missing");return;}
+        try{startActivity(new Intent(Intent.ACTION_DIAL,Uri.parse("tel:"+no)));}catch(Exception e){toast("Dialer open nahi ho saka");}
+    }
+    private void openEmail(DBHelper.Client c){
+        if(c.email==null||c.email.trim().isEmpty()){toast("Email missing");return;}
+        try{Intent i=new Intent(Intent.ACTION_SENDTO,Uri.parse("mailto:"+Uri.encode(c.email)));i.putExtra(Intent.EXTRA_SUBJECT,"FBR Return / Tax Documents");startActivity(i);}catch(Exception e){toast("Email app open nahi ho saki");}
+    }
+    private void shareClientSummary(DBHelper.Client c){
+        String s="FBR Return Filer — Client Summary\n"+
+                "Client: "+c.name+"\nNTN: "+safe(c.ntn)+"\nCNIC: "+safe(c.cnic)+"\n"+
+                "Tax Type: "+safe(c.taxType)+"\nStatus: "+safe(c.status)+"\nNext Due: "+safe(c.nextDue)+"\n"+
+                "Pending Filings: "+db.countClientPendingFilings(c.id)+"\nOpen Tasks: "+db.countClientOpenTasks(c.id)+"\n"+
+                "Outstanding Fees: PKR "+String.format(Locale.US,"%,.0f",db.clientOutstandingPayments(c.id));
+        Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_TEXT,s);startActivity(Intent.createChooser(i,"Share client summary"));
     }
 
     private void openWhatsApp(DBHelper.Client c){
