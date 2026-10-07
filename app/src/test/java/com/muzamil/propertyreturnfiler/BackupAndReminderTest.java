@@ -98,6 +98,21 @@ public class BackupAndReminderTest {
         db.close();
     }
 
+    @Test public void executiveAnalyticsWork() {
+        DBHelper db=new DBHelper(context);
+        assertTrue(db.countPendingDueWithinDays(7)>=0);
+        assertTrue(db.countPendingDueWithinDays(30)>=0);
+        assertTrue(db.countClientsWithOutstandingFees()>=0);
+        assertTrue(db.receivablesAging("current")>=0);
+        assertTrue(db.receivablesAging("1-30")>=0);
+        assertTrue(db.receivablesAging("31-60")>=0);
+        assertTrue(db.receivablesAging("61+")>=0);
+        assertTrue(db.collectionRate()>=0 && db.collectionRate()<=100.0);
+        assertTrue(db.countTaxType("Income")>=0);
+        assertTrue(db.latestAuditTime(1)>=0);
+        db.close();
+    }
+
     @Test public void workloadAnalyticsAreAvailable() {
         DBHelper db=new DBHelper(context);
         assertTrue(db.countOverdueFilings()>=0);
