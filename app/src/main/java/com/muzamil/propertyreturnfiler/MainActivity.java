@@ -41,6 +41,7 @@ public class MainActivity extends Activity {
     private boolean dashboardOpened = false;
     private static final int REQ_EXPORT_BACKUP=501;
     private static final int REQ_IMPORT_BACKUP=502;
+    private static final int REQ_EXPORT_CLIENTS_CSV=503;
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -414,6 +415,10 @@ public class MainActivity extends Activity {
         ut.addView(tv("Muzamil Abbas",17,INK,true));
         ut.addView(tv("Tax Consultant",10,MUTED,false));
         user.addView(ut,new LinearLayout.LayoutParams(0,-2,1));
+        TextView search=iconCircle(R.drawable.ic_search);
+        search.setOnClickListener(v->showGlobalSearch());
+        user.addView(search,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        Space topGap=new Space(this);user.addView(topGap,new LinearLayout.LayoutParams(dp(6),1));
         TextView bell=iconCircle(R.drawable.ic_bell);
         bell.setOnClickListener(v->showReminders());
         user.addView(bell,new LinearLayout.LayoutParams(dp(42),dp(42)));
@@ -481,6 +486,15 @@ public class MainActivity extends Activity {
         compliance.addView(spacer(10));
         compliance.addView(progressLine("Reminder coverage",db.countReminders(),Math.max(1,db.countClients()),BLUE));
         body.addView(compliance);
+
+        body.addView(section("Priority Snapshot"));
+        LinearLayout priorityCard=card(18);
+        priorityCard.addView(infoLineReport("Overdue filings",String.valueOf(db.countOverdueFilings()),db.countOverdueFilings()>0?RED:GREEN));
+        priorityCard.addView(infoLineReport("High-priority tasks",String.valueOf(db.countHighPriorityTasks()),db.countHighPriorityTasks()>0?ORANGE:GREEN));
+        priorityCard.addView(infoLineReport("Reminders next 7 days",String.valueOf(db.countRemindersNext7Days()),BLUE));
+        priorityCard.addView(infoLineReport("Outstanding fees","PKR "+String.format(Locale.US,"%,.0f",db.outstandingPayments()),PURPLE));
+        priorityCard.setOnClickListener(v->showActionCenter());
+        body.addView(priorityCard);
 
         LinearLayout dh=new LinearLayout(this);dh.setGravity(Gravity.CENTER_VERTICAL);
         dh.addView(section("Upcoming Deadlines"),new LinearLayout.LayoutParams(0,-2,1));
@@ -831,6 +845,15 @@ public class MainActivity extends Activity {
         perf.addView(progressLine("Reminder coverage",db.countReminders(),Math.max(1,db.countClients()),BLUE));
         body.addView(perf);
 
+        body.addView(section("Operational Risk"));
+        LinearLayout risk=card(18);
+        risk.addView(infoLineReport("Overdue filings",String.valueOf(db.countOverdueFilings()),db.countOverdueFilings()>0?RED:GREEN));
+        risk.addView(infoLineReport("High priority tasks",String.valueOf(db.countHighPriorityTasks()),ORANGE));
+        risk.addView(infoLineReport("Outstanding fees","PKR "+String.format(Locale.US,"%,.0f",db.outstandingPayments()),PURPLE));
+        risk.addView(infoLineReport("7-day reminders",String.valueOf(db.countRemindersNext7Days()),BLUE));
+        body.addView(risk);
+
+        Button csv=actionButton("Export Clients CSV",R.drawable.ic_doc,false);csv.setOnClickListener(v->exportClientsCsv());body.addView(csv,new LinearLayout.LayoutParams(-1,dp(50)));body.addView(spacer(8));
         Button share=actionButton("Share Summary",R.drawable.ic_doc,true);share.setOnClickListener(v->shareBusinessSummary());
         body.addView(share,new LinearLayout.LayoutParams(-1,dp(52)));
     }
@@ -867,6 +890,34 @@ public class MainActivity extends Activity {
         startActivity(Intent.createChooser(send,"Share report"));
     }
 
+    private void showGlobalSearch(){
+        activeNav="more";shell("Global Search","Find clients, tasks and reminders");
+        EditText q=new EditText(this);q.setHint("Search name, NTN, task or reminder...");q.setSingleLine(true);q.setTextSize(13);q.setPadding(dp(12),0,dp(12),0);q.setBackground(solid(Color.WHITE,16));
+        body.addView(q,new LinearLayout.LayoutParams(-1,dp(50)));
+        LinearLayout results=new LinearLayout(this);results.setOrientation(LinearLayout.VERTICAL);body.addView(results);
+        TextWatcher w=new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void afterTextChanged(Editable e){}public void onTextChanged(CharSequence s,int st,int b,int count){renderGlobalResults(results,s==null?"":s.toString());}};
+        q.addTextChangedListener(w);renderGlobalResults(results,"");
+    }
+    private void renderGlobalResults(LinearLayout out,String query){
+        out.removeAllViews();String q=query==null?"":query.trim().toLowerCase(Locale.US);
+        if(q.isEmpty()){out.addView(emptyState("Start typing","Search across clients, tasks and reminders."));return;}
+        int shown=0;
+        for(DBHelper.Client cl:db.clients(query)){LinearLayout x=card(14);x.addView(tv(cl.name,13,INK,true));x.addView(tv("Client • NTN "+safe(cl.ntn),10,MUTED,false));x.setOnClickListener(v->showClient(cl.id));out.addView(x);if(++shown>=12)break;}
+        for(DBHelper.Task t:db.tasks(0)){if(shown>=12)break;String hay=(t.title+" "+safe(t.notes)).toLowerCase(Locale.US);if(hay.contains(q)){LinearLayout x=card(14);x.addView(tv(t.title,13,INK,true));x.addView(tv("Task • "+t.priority+" • "+safe(t.due),10,ORANGE,false));x.setOnClickListener(v->{if(t.clientId>0)showClientTasks(t.clientId);else showTasksHub();});out.addView(x);shown++;}}
+        for(DBHelper.Reminder r:db.reminders(0)){if(shown>=12)break;String hay=(r.title+" "+safe(r.client)+" "+safe(r.message)).toLowerCase(Locale.US);if(hay.contains(q)){LinearLayout x=card(14);x.addView(tv(r.title,13,INK,true));x.addView(tv("Reminder • "+(r.client==null?"General":r.client),10,BLUE,false));x.setOnClickListener(v->showReminders());out.addView(x);shown++;}}
+        if(shown==0)out.addView(emptyState("No results","Nothing matched '"+query+"'."));
+    }
+
+    private void exportClientsCsv(){
+        Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("text/csv");i.putExtra(Intent.EXTRA_TITLE,"FBR-Clients-"+new SimpleDateFormat("yyyy-MM-dd",Locale.US).format(new Date())+".csv");startActivityForResult(i,REQ_EXPORT_CLIENTS_CSV);
+    }
+    private String csvEscape(String s){if(s==null)return "";String v=s.replace(""","""");return """+v+""";}
+    private String clientsCsv(){
+        StringBuilder b=new StringBuilder("Name,NTN,CNIC,WhatsApp,Phone,Business,Filing Type,Status,Next Due,Email,Address\n");
+        for(DBHelper.Client c:db.clients(""))b.append(csvEscape(c.name)).append(',').append(csvEscape(c.ntn)).append(',').append(csvEscape(c.cnic)).append(',').append(csvEscape(c.whatsapp)).append(',').append(csvEscape(c.phone)).append(',').append(csvEscape(c.business)).append(',').append(csvEscape(c.taxType)).append(',').append(csvEscape(c.status)).append(',').append(csvEscape(c.nextDue)).append(',').append(csvEscape(c.email)).append(',').append(csvEscape(c.address)).append('\n');
+        return b.toString();
+    }
+
     private void showMore(){
         activeNav="more";shell("Workspace","Complete FBR operations center");
         LinearLayout brand=card(20);brand.setBackground(gradient(Color.rgb(33,133,255),Color.rgb(19,81,218),20));
@@ -876,6 +927,7 @@ public class MainActivity extends Activity {
         body.addView(section("Operations"));
         body.addView(menuRow("FBR Portal",R.drawable.ic_fbr_portal,()->openUrl("https://iris.fbr.gov.pk/")));
         body.addView(menuRow("Client Database",R.drawable.ic_people,()->showClients("")));
+        body.addView(menuRow("Global Search",R.drawable.ic_search,()->showGlobalSearch()));
         body.addView(menuRow("Filing Center",R.drawable.ic_doc,()->showFilingsHub()));
         body.addView(menuRow("Reminder Center",R.drawable.ic_bell,()->showReminders()));
         body.addView(menuRow("Documents Checklist",R.drawable.ic_doc,()->showDocumentsHub()));
@@ -885,6 +937,7 @@ public class MainActivity extends Activity {
         body.addView(menuRow("Task Manager",R.drawable.ic_calendar,()->showTasksHub()));
         body.addView(menuRow("Audit Trail",R.drawable.ic_grid,()->showAuditTrail(0)));
         body.addView(section("System"));
+        body.addView(menuRow("Export Clients CSV",R.drawable.ic_doc,()->exportClientsCsv()));
         body.addView(menuRow("Backup & Restore",R.drawable.ic_settings,()->showBackupInfo()));
         body.addView(menuRow("App Settings",R.drawable.ic_settings,()->showSettingsInfo()));
     }
@@ -1135,7 +1188,30 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("Add Payment").setView(f).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{double amount=0;try{amount=Double.parseDouble(val(a));}catch(Exception ignored){}db.addPayment(id,val(t),amount,val(due),String.valueOf(st.getSelectedItem()),"");showClientPayments(id);}).show();
     }
 
-    private void showFilingsHub(){activeNav="more";shell("Filing Center","All clients and return workload");for(DBHelper.Client cl:db.clients("")){LinearLayout x=card(16);x.addView(tv(cl.name,13,INK,true));x.addView(tv(db.filings(cl.id).size()+" filing records • "+safe(cl.taxType),10,MUTED,false));x.setOnClickListener(v->showClientFilings(cl.id));body.addView(x);}}
+    private void showFilingsHub(){
+        activeNav="more";shell("Filing Center","All returns, deadlines and compliance");
+        LinearLayout stats=new LinearLayout(this);
+        stats.addView(metric("Pending",String.valueOf(db.countPending()),"Needs action",R.drawable.ic_doc,ORANGE,Color.rgb(255,243,225)),new LinearLayout.LayoutParams(0,dp(112),1));
+        Space sg=new Space(this);stats.addView(sg,new LinearLayout.LayoutParams(dp(8),1));
+        stats.addView(metric("Overdue",String.valueOf(db.countOverdueFilings()),"Past due date",R.drawable.ic_bell,RED,Color.rgb(255,236,238)),new LinearLayout.LayoutParams(0,dp(112),1));
+        body.addView(stats);
+        body.addView(section("All Filings"));
+        List<DBHelper.FilingRow> rows=db.allFilings();
+        if(rows.isEmpty()){body.addView(emptyState("No filings","Create a filing from a client profile."));return;}
+        for(DBHelper.FilingRow f:rows){
+            boolean overdue=db.isOverdue(f.due,f.status);
+            LinearLayout x=card(16);x.setOnClickListener(v->showClientFilings(f.clientId));
+            LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);
+            tx.addView(tv(f.client==null?"Unknown client":f.client,13,INK,true));
+            tx.addView(tv(f.month+" "+f.year+" • "+safe(f.type),10,MUTED,false));
+            tx.addView(iconText("Due "+safe(f.due),R.drawable.ic_calendar,10,overdue?RED:BLUE,true));
+            head.addView(tx,new LinearLayout.LayoutParams(0,-2,1));
+            String label=overdue?"Overdue":safe(f.status);int col=overdue?RED:("Filed".equals(f.status)?GREEN:ORANGE);
+            TextView badge=tv(label,9,col,true);badge.setGravity(Gravity.CENTER);badge.setBackground(solid(statusBg(overdue?"Overdue":f.status),12));head.addView(badge,new LinearLayout.LayoutParams(dp(76),dp(28)));
+            x.addView(head);body.addView(x);
+        }
+    }
     private void showDocumentsHub(){activeNav="more";shell("Documents","Client document checklists");for(DBHelper.Client cl:db.clients("")){int n=db.documents(cl.id).size();if(n>0){LinearLayout x=card(16);x.addView(tv(cl.name,13,INK,true));x.addView(tv(n+" document records",10,MUTED,false));x.setOnClickListener(v->showClientDocuments(cl.id));body.addView(x);}}}
     private void showPaymentsHub(){activeNav="more";shell("Payments","Consultancy fees and dues");for(DBHelper.Client cl:db.clients("")){int n=db.payments(cl.id).size();if(n>0){LinearLayout x=card(16);x.addView(tv(cl.name,13,INK,true));x.addView(tv(n+" payment records",10,MUTED,false));x.setOnClickListener(v->showClientPayments(cl.id));body.addView(x);}}}
     private void showBackupInfo(){
@@ -1156,7 +1232,7 @@ public class MainActivity extends Activity {
     }
     private void showSettingsInfo(){
         activeNav="more";shell("Settings","FBR Return Filer preferences");
-        body.addView(infoCard("App","FBR Return Filer Pro V14",R.drawable.ic_settings,false));
+        body.addView(infoCard("App","FBR Return Filer Pro V15",R.drawable.ic_settings,false));
         body.addView(infoCard("Storage","Private SQLite + JSON backup",R.drawable.ic_doc,false));
         body.addView(infoCard("Reminder channel","Local notification + WhatsApp",R.drawable.ic_bell,false));
 
@@ -1309,7 +1385,11 @@ public class MainActivity extends Activity {
         if(resultCode!=RESULT_OK || data==null || data.getData()==null)return;
         Uri uri=data.getData();
         try{
-            if(requestCode==REQ_EXPORT_BACKUP){
+            if(requestCode==REQ_EXPORT_CLIENTS_CSV){
+                OutputStream out=getContentResolver().openOutputStream(uri);
+                if(out==null)throw new IOException("Cannot open CSV destination");
+                out.write(clientsCsv().getBytes(StandardCharsets.UTF_8));out.flush();out.close();toast("Clients CSV exported");
+            }else if(requestCode==REQ_EXPORT_BACKUP){
                 String json=db.exportJson();
                 OutputStream out=getContentResolver().openOutputStream(uri);
                 if(out==null)throw new IOException("Cannot open backup destination");
