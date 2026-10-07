@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: fbr-apk-main
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -49,6 +53,7 @@ jobs:
             echo "APK unchanged"
           else
             git commit -m "Publish latest APK [skip ci]"
+            git pull --rebase origin main
             git push origin main
           fi
 
