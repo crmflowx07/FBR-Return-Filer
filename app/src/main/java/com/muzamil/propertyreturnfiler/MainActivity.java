@@ -911,7 +911,7 @@ public class MainActivity extends Activity {
     private void exportClientsCsv(){
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("text/csv");i.putExtra(Intent.EXTRA_TITLE,"FBR-Clients-"+new SimpleDateFormat("yyyy-MM-dd",Locale.US).format(new Date())+".csv");startActivityForResult(i,REQ_EXPORT_CLIENTS_CSV);
     }
-    private String csvEscape(String s){if(s==null)return "";String v=s.replace(""","""");return """+v+""";}
+    private String csvEscape(String s){if(s==null)return "";String v=s.replace("\"","\"\"");return "\""+v+"\"";}
     private String clientsCsv(){
         StringBuilder b=new StringBuilder("Name,NTN,CNIC,WhatsApp,Phone,Business,Filing Type,Status,Next Due,Email,Address\n");
         for(DBHelper.Client c:db.clients(""))b.append(csvEscape(c.name)).append(',').append(csvEscape(c.ntn)).append(',').append(csvEscape(c.cnic)).append(',').append(csvEscape(c.whatsapp)).append(',').append(csvEscape(c.phone)).append(',').append(csvEscape(c.business)).append(',').append(csvEscape(c.taxType)).append(',').append(csvEscape(c.status)).append(',').append(csvEscape(c.nextDue)).append(',').append(csvEscape(c.email)).append(',').append(csvEscape(c.address)).append('\n');
