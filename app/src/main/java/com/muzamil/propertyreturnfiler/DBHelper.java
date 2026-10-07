@@ -199,6 +199,43 @@ public class DBHelper extends SQLiteOpenHelper {
         }
         c.close();return n;
     }
+    public int countPendingDueWithinDays(int days){
+        int n=0;Date now=new Date();Date end=new Date(now.getTime()+days*86400000L);
+        Cursor c=getReadableDatabase().rawQuery("SELECT dueDate FROM filings WHERE status='Pending'",null);
+        SimpleDateFormat f=new SimpleDateFormat("dd MMM yyyy",Locale.US);f.setLenient(false);
+        while(c.moveToNext()){
+            try{Date d=f.parse(c.getString(0));if(d!=null&&!d.before(now)&&!d.after(end))n++;}catch(Exception ignored){}
+        }
+        c.close();return n;
+    }
+    public int countClientsWithOutstandingFees(){
+        Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(DISTINCT clientId) FROM payments WHERE status!='Paid'",null);
+        c.moveToFirst();int v=c.getInt(0);c.close();return v;
+    }
+    public double receivablesAging(String bucket){
+        long now=System.currentTimeMillis();double total=0;SimpleDateFormat f=new SimpleDateFormat("dd MMM yyyy",Locale.US);f.setLenient(false);
+        Cursor c=getReadableDatabase().rawQuery("SELECT amount,dueDate,status FROM payments WHERE status!='Paid'",null);
+        while(c.moveToNext()){
+            try{
+                Date d=f.parse(c.getString(1));if(d==null)continue;
+                long age=(now-d.getTime())/86400000L;
+                boolean match=("current".equals(bucket)&&age<=0)||("1-30".equals(bucket)&&age>=1&&age<=30)||("31-60".equals(bucket)&&age>=31&&age<=60)||("61+".equals(bucket)&&age>=61);
+                if(match)total+=c.getDouble(0);
+            }catch(Exception ignored){}
+        }
+        c.close();return total;
+    }
+    public int countTaxType(String token){
+        Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*) FROM clients WHERE taxType LIKE ?",new String[]{"%"+token+"%"});
+        c.moveToFirst();int v=c.getInt(0);c.close();return v;
+    }
+    public long latestAuditTime(long clientId){
+        Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(MAX(createdAt),0) FROM audit_logs WHERE clientId=?",new String[]{String.valueOf(clientId)});
+        c.moveToFirst();long v=c.getLong(0);c.close();return v;
+    }
+    public double collectionRate(){
+        double total=totalPayments();return total<=0?0:(paidPayments()*100.0/total);
+    }
     public List<Client> clientsByStatus(String status){
         ArrayList<Client> out=new ArrayList<>();
         Cursor c=getReadableDatabase().rawQuery("SELECT id,name,whatsapp,phone,cnic,ntn,business,taxType,status,nextDue,email,address,notes FROM clients WHERE status=? ORDER BY id ASC",new String[]{status});
